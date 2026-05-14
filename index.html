@@ -1,0 +1,1969 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Particle Demo</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #EAE0CB;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  #canvas, #overlay {
+    position: fixed;
+    inset: 0;
+    display: block;
+    width: 100vw;
+    height: 100vh;
+  }
+  #overlay { z-index: 8; pointer-events: none; }
+  #vignette {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 5;
+  }
+  #pill {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: rgba(20, 20, 20, 0.85);
+    color: #fff;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 100;
+    font-size: 22px;
+    transition: transform 0.18s ease, background 0.18s ease;
+    user-select: none;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+  }
+  #pill:hover { background: rgba(20, 20, 20, 1); transform: scale(1.08); }
+  #grain {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 6;
+    opacity: 0.22;
+    mix-blend-mode: overlay;
+    background-size: 256px 256px;
+    background-repeat: repeat;
+    display: none;
+  }
+  #hand-preview {
+    position: fixed;
+    bottom: 14px;
+    left: 14px;
+    width: 240px;
+    height: 180px;
+    background: rgba(20, 20, 20, 0.85);
+    border-radius: 10px;
+    overflow: hidden;
+    z-index: 60;
+    display: none;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+    color: #fff;
+    font-size: 11px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  #hand-preview canvas { display: block; width: 100%; height: 100%; }
+  #hand-resize {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 18px;
+    height: 18px;
+    cursor: nesw-resize;
+    background:
+      linear-gradient(225deg, rgba(255, 255, 255, 0.55) 0 2px, transparent 2px 5px, rgba(255, 255, 255, 0.45) 5px 7px, transparent 7px 10px, rgba(255, 255, 255, 0.35) 10px 12px, transparent 12px 100%);
+    border-top-right-radius: 10px;
+  }
+  #hand-preview[data-compact="1"] {
+    width: 44px !important;
+    height: 44px !important;
+    cursor: pointer;
+    border-radius: 50%;
+  }
+  #hand-preview[data-compact="1"] canvas,
+  #hand-preview[data-compact="1"] #hand-status,
+  #hand-preview[data-compact="1"] #hand-resize { display: none; }
+  #hand-preview[data-compact="1"]::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.85);
+  }
+  #hand-preview[data-compact="1"]::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.85);
+  }
+  #hand-status {
+    position: absolute;
+    left: 8px;
+    bottom: 6px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: 0.5px;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+    pointer-events: none;
+  }
+  .lil-gui {
+    --background-color: rgba(20, 20, 20, 0.92);
+    --width: 300px;
+    z-index: 50;
+  }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<canvas id="overlay"></canvas>
+<div id="grain"></div>
+<div id="vignette"></div>
+<div id="hand-preview"><canvas></canvas><div id="hand-status">idle</div><div id="hand-resize" title="Drag to resize"></div></div>
+<div id="pill" title="Show menu">&#9881;</div>
+<script type="module">
+import GUI from 'https://cdn.jsdelivr.net/npm/lil-gui@0.19/dist/lil-gui.esm.js';
+
+// ============================================================
+// Simplex noise 2D, MIT, adapted from simplex-noise.js.
+// ============================================================
+function createNoise2D(seed) {
+  const grad = new Float32Array([
+    1, 1, -1, 1, 1, -1, -1, -1,
+    1, 0, -1, 0, 1, 0, -1, 0,
+    0, 1, 0, -1, 0, 1, 0, -1
+  ]);
+  const perm = new Uint8Array(512);
+  const permMod12 = new Uint8Array(512);
+  const base = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) base[i] = i;
+  let s = (seed | 0) || 1;
+  for (let i = 255; i > 0; i--) {
+    s = (s * 16807) % 2147483647;
+    const r = s % (i + 1);
+    const tmp = base[i]; base[i] = base[r]; base[r] = tmp;
+  }
+  for (let i = 0; i < 512; i++) {
+    perm[i] = base[i & 255];
+    permMod12[i] = perm[i] % 12;
+  }
+  const F2 = 0.5 * (Math.sqrt(3) - 1);
+  const G2 = (3 - Math.sqrt(3)) / 6;
+  return function noise2D(x, y) {
+    let n0, n1, n2;
+    const sk = (x + y) * F2;
+    const i = Math.floor(x + sk);
+    const j = Math.floor(y + sk);
+    const t = (i + j) * G2;
+    const X0 = i - t, Y0 = j - t;
+    const x0 = x - X0, y0 = y - Y0;
+    let i1, j1;
+    if (x0 > y0) { i1 = 1; j1 = 0; } else { i1 = 0; j1 = 1; }
+    const x1 = x0 - i1 + G2;
+    const y1 = y0 - j1 + G2;
+    const x2 = x0 - 1 + 2 * G2;
+    const y2 = y0 - 1 + 2 * G2;
+    const ii = i & 255, jj = j & 255;
+    let t0 = 0.5 - x0 * x0 - y0 * y0;
+    if (t0 < 0) n0 = 0;
+    else {
+      const gi = permMod12[ii + perm[jj]] * 2;
+      t0 *= t0;
+      n0 = t0 * t0 * (grad[gi] * x0 + grad[gi + 1] * y0);
+    }
+    let t1 = 0.5 - x1 * x1 - y1 * y1;
+    if (t1 < 0) n1 = 0;
+    else {
+      const gi = permMod12[ii + i1 + perm[jj + j1]] * 2;
+      t1 *= t1;
+      n1 = t1 * t1 * (grad[gi] * x1 + grad[gi + 1] * y1);
+    }
+    let t2 = 0.5 - x2 * x2 - y2 * y2;
+    if (t2 < 0) n2 = 0;
+    else {
+      const gi = permMod12[ii + 1 + perm[jj + 1]] * 2;
+      t2 *= t2;
+      n2 = t2 * t2 * (grad[gi] * x2 + grad[gi + 1] * y2);
+    }
+    return 70 * (n0 + n1 + n2);
+  };
+}
+
+// ============================================================
+// DOM, palettes, shared state.
+// ============================================================
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const overlayCanvas = document.getElementById('overlay');
+const overlayCtx = overlayCanvas.getContext('2d');
+const vignetteEl = document.getElementById('vignette');
+const pillEl = document.getElementById('pill');
+const handPreviewEl = document.getElementById('hand-preview');
+const handPreviewCanvas = handPreviewEl.querySelector('canvas');
+const handPreviewCtx = handPreviewCanvas.getContext('2d');
+const handStatusEl = document.getElementById('hand-status');
+const grainEl = document.getElementById('grain');
+
+const PALETTES = {
+  ink:   { bg: [234, 224, 203], particle: [10, 10, 10],    lightness: 0.30, grain: false },
+  light: { bg: [236, 236, 236], particle: [255, 255, 255], lightness: 0.72, grain: false },
+  night: { bg: [8, 8, 12],      particle: [230, 224, 210], lightness: 0.72, grain: true  }
+};
+
+// Procedural film grain. Generated once at boot and tiled by CSS;
+// per frame we jitter the background position to make it crawl.
+(function buildGrain() {
+  const size = 256;
+  const c = document.createElement('canvas');
+  c.width = size; c.height = size;
+  const cc = c.getContext('2d');
+  const img = cc.createImageData(size, size);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const v = 60 + (Math.random() * 195 | 0);
+    d[i] = v; d[i + 1] = v; d[i + 2] = v; d[i + 3] = 255;
+  }
+  cc.putImageData(img, 0, 0);
+  grainEl.style.backgroundImage = `url(${c.toDataURL('image/png')})`;
+})();
+
+const state = {
+  canvas, ctx, w: 0, h: 0,
+  currentSystem: 'curl',
+  paused: false,
+  frame: 0,
+  particles: [],
+  agents: null,
+  pheromone: null,
+  pheromoneTemp: null,
+  pheromoneW: 0,
+  pheromoneH: 0,
+  physarumOff: null,
+  physarumOffCtx: null,
+  physarumImg: null,
+  noise2D: createNoise2D(1337),
+  globalParams: {
+    palette: 'ink',
+    particleSize: 0.9,
+    particleAlpha: 0.22,
+    trailDecay: 0.04,
+    hue: 0,
+    saturation: 0,
+    vignetteStrength: 0.15,
+    // Video feedback: each frame, the rendered canvas is
+    // scaled and rotated by these amounts as a post step.
+    // Positive feedbackScale = zoom in tunnel. Negative =
+    // zoom out. Rotate spins the trails.
+    feedbackScale: 0,
+    feedbackRotate: 0
+  },
+  systemParams: {
+    curl:     { particleCount: 4000, scale: 0.002, timeSpeed: 0.0002, octaves: 2, particleSpeed: 1.0 },
+    clifford: { particleCount: 8000, a: -1.7, b: 1.3, c: -0.1, d: -1.21, iterationsPerFrame: 1, lifespan: 400 },
+    physarum: { agentCount: 20000, sensorDistance: 9, sensorAngle: 0.5, turnAngle: 0.4, moveSpeed: 1.0, depositAmount: 5, decayFactor: 0.95 },
+    dla:      { walkerCount: 1500, stepSize: 1.5, spawnRadius: 0.7 },
+    rd:       { Du: 0.16, Dv: 0.08, F: 0.0545, k: 0.062, iterations: 3 },
+    boids:    { particleCount: 1500, neighborRadius: 40, cohesion: 0.004, alignment: 0.04, separation: 0.02, maxSpeed: 3.0 }
+  }
+};
+
+const DEFAULTS = JSON.parse(JSON.stringify({
+  currentSystem: state.currentSystem,
+  globalParams: state.globalParams,
+  systemParams: state.systemParams
+}));
+
+function getPalette() {
+  return PALETTES[state.globalParams.palette] || PALETTES.ink;
+}
+function bgColor() { const [r, g, b] = getPalette().bg; return `rgb(${r}, ${g}, ${b})`; }
+
+function paintBackground() {
+  ctx.fillStyle = bgColor();
+  ctx.fillRect(0, 0, state.w, state.h);
+  document.body.style.background = bgColor();
+  grainEl.style.display = getPalette().grain ? 'block' : 'none';
+}
+
+function resize() {
+  state.w = canvas.width = Math.floor(window.innerWidth);
+  state.h = canvas.height = Math.floor(window.innerHeight);
+  overlayCanvas.width = state.w;
+  overlayCanvas.height = state.h;
+  paintBackground();
+  // Grid backed systems need their buffers resized to match
+  // the new canvas dimensions.
+  if (state.currentSystem === 'physarum') systems.physarum.init(state);
+  else if (state.currentSystem === 'rd') systems.rd.init(state);
+  else if (state.currentSystem === 'dla') systems.dla.init(state);
+}
+window.addEventListener('resize', resize);
+
+// ============================================================
+// Color helpers.
+// ============================================================
+function hslToRgb(h, s, l) {
+  if (s === 0) { const v = Math.round(l * 255); return [v, v, v]; }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  function f(t) {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  }
+  return [
+    Math.round(f(h + 1 / 3) * 255),
+    Math.round(f(h) * 255),
+    Math.round(f(h - 1 / 3) * 255)
+  ];
+}
+
+function getParticleRGB() {
+  const { hue, saturation } = state.globalParams;
+  const pal = getPalette();
+  if (saturation === 0) return pal.particle;
+  return hslToRgb(hue / 360, saturation / 100, pal.lightness);
+}
+
+function getParticleColor() {
+  const [r, g, b] = getParticleRGB();
+  return `rgba(${r}, ${g}, ${b}, ${state.globalParams.particleAlpha})`;
+}
+
+// ============================================================
+// Particle systems.
+// ============================================================
+function psi(x, y, t, octaves) {
+  let v = 0, amp = 1, freq = 1, norm = 0;
+  for (let i = 0; i < octaves; i++) {
+    v += amp * state.noise2D(x * freq + t, y * freq - t * 0.6);
+    norm += amp; amp *= 0.5; freq *= 2;
+  }
+  return v / norm;
+}
+
+const curlSystem = {
+  init(state) {
+    const n = state.systemParams.curl.particleCount;
+    state.particles = new Array(n);
+    for (let i = 0; i < n; i++) {
+      state.particles[i] = { x: Math.random() * state.w, y: Math.random() * state.h };
+    }
+  },
+  step(p, t, state) {
+    const sp = state.systemParams.curl;
+    const tt = t * sp.timeSpeed * 100;
+    const sx = p.x * sp.scale;
+    const sy = p.y * sp.scale;
+    const eps = 0.001;
+    const dPsidy = (psi(sx, sy + eps, tt, sp.octaves) - psi(sx, sy - eps, tt, sp.octaves)) / (2 * eps);
+    const dPsidx = (psi(sx + eps, sy, tt, sp.octaves) - psi(sx - eps, sy, tt, sp.octaves)) / (2 * eps);
+    p.x += dPsidy * sp.particleSpeed * 1.6;
+    p.y += -dPsidx * sp.particleSpeed * 1.6;
+    if (p.x < 0) p.x += state.w; else if (p.x >= state.w) p.x -= state.w;
+    if (p.y < 0) p.y += state.h; else if (p.y >= state.h) p.y -= state.h;
+  },
+  update(state) {
+    const t = state.frame;
+    const parts = state.particles;
+    for (let i = 0, n = parts.length; i < n; i++) this.step(parts[i], t, state);
+  },
+  render(ctx, state) {
+    ctx.fillStyle = getParticleColor();
+    const sz = state.globalParams.particleSize;
+    const half = sz * 0.5;
+    const parts = state.particles;
+    for (let i = 0, n = parts.length; i < n; i++) {
+      const p = parts[i];
+      ctx.fillRect(p.x - half, p.y - half, sz, sz);
+    }
+  }
+};
+
+const cliffordSystem = {
+  init(state) {
+    const n = state.systemParams.clifford.particleCount;
+    const life = state.systemParams.clifford.lifespan;
+    state.particles = new Array(n);
+    for (let i = 0; i < n; i++) {
+      state.particles[i] = { x: Math.random() * 4 - 2, y: Math.random() * 4 - 2, age: Math.floor(Math.random() * life) };
+    }
+  },
+  step(p, t, state) {
+    const sp = state.systemParams.clifford;
+    for (let k = 0; k < sp.iterationsPerFrame; k++) {
+      const nx = Math.sin(sp.a * p.y) + sp.c * Math.cos(sp.a * p.x);
+      const ny = Math.sin(sp.b * p.x) + sp.d * Math.cos(sp.b * p.y);
+      p.x = nx; p.y = ny;
+    }
+    p.age++;
+    if (p.age >= sp.lifespan) {
+      p.x = Math.random() * 4 - 2; p.y = Math.random() * 4 - 2; p.age = 0;
+    }
+  },
+  update(state) {
+    const t = state.frame;
+    const parts = state.particles;
+    for (let i = 0, n = parts.length; i < n; i++) this.step(parts[i], t, state);
+  },
+  render(ctx, state) {
+    ctx.fillStyle = getParticleColor();
+    const sz = state.globalParams.particleSize;
+    const half = sz * 0.5;
+    const side = Math.min(state.w, state.h) * 0.92;
+    const cx = state.w * 0.5;
+    const cy = state.h * 0.5;
+    const scale = (side * 0.5) / 2.5;
+    const parts = state.particles;
+    for (let i = 0, n = parts.length; i < n; i++) {
+      const p = parts[i];
+      const sxp = cx + p.x * scale;
+      const syp = cy + p.y * scale;
+      ctx.fillRect(sxp - half, syp - half, sz, sz);
+    }
+  }
+};
+
+const PHYS_DOWNSAMPLE = 2;
+
+function initPhysarumGrid() {
+  state.pheromoneW = Math.max(1, Math.floor(state.w / PHYS_DOWNSAMPLE));
+  state.pheromoneH = Math.max(1, Math.floor(state.h / PHYS_DOWNSAMPLE));
+  state.pheromone = new Float32Array(state.pheromoneW * state.pheromoneH);
+  state.pheromoneTemp = new Float32Array(state.pheromoneW * state.pheromoneH);
+  state.physarumOff = document.createElement('canvas');
+  state.physarumOff.width = state.pheromoneW;
+  state.physarumOff.height = state.pheromoneH;
+  state.physarumOffCtx = state.physarumOff.getContext('2d');
+  state.physarumImg = state.physarumOffCtx.createImageData(state.pheromoneW, state.pheromoneH);
+}
+
+function sampleGridWrap(grid, x, y, W, H) {
+  let ix = x | 0, iy = y | 0;
+  if (ix < 0) ix += W; else if (ix >= W) ix -= W;
+  if (iy < 0) iy += H; else if (iy >= H) iy -= H;
+  return grid[iy * W + ix];
+}
+
+function diffuseAndDecay(grid, temp, W, H, decay) {
+  const d9 = decay / 9;
+  for (let y = 1; y < H - 1; y++) {
+    const rowM = (y - 1) * W, row = y * W, rowP = (y + 1) * W;
+    for (let x = 1; x < W - 1; x++) {
+      const s = grid[rowM + x - 1] + grid[rowM + x] + grid[rowM + x + 1]
+              + grid[row  + x - 1] + grid[row  + x] + grid[row  + x + 1]
+              + grid[rowP + x - 1] + grid[rowP + x] + grid[rowP + x + 1];
+      temp[row + x] = s * d9;
+    }
+  }
+  for (let x = 0; x < W; x++) {
+    temp[x] = grid[x] * decay;
+    temp[(H - 1) * W + x] = grid[(H - 1) * W + x] * decay;
+  }
+  for (let y = 0; y < H; y++) {
+    temp[y * W] = grid[y * W] * decay;
+    temp[y * W + W - 1] = grid[y * W + W - 1] * decay;
+  }
+  grid.set(temp);
+}
+
+const physarumSystem = {
+  skipTrailDecay: true,
+  init(state) {
+    initPhysarumGrid();
+    const n = state.systemParams.physarum.agentCount;
+    state.agents = { x: new Float32Array(n), y: new Float32Array(n), h: new Float32Array(n) };
+    const cx = state.pheromoneW * 0.5, cy = state.pheromoneH * 0.5;
+    const r = Math.min(cx, cy) * 0.6;
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const rr = Math.sqrt(Math.random()) * r;
+      state.agents.x[i] = cx + Math.cos(a) * rr;
+      state.agents.y[i] = cy + Math.sin(a) * rr;
+      state.agents.h[i] = Math.random() * Math.PI * 2;
+    }
+  },
+  step(i, t, state) {
+    const sp = state.systemParams.physarum;
+    const W = state.pheromoneW, H = state.pheromoneH;
+    const grid = state.pheromone;
+    const ax = state.agents.x, ay = state.agents.y, ah = state.agents.h;
+    const sd = sp.sensorDistance, sa = sp.sensorAngle;
+    const hC = ah[i], hL = hC - sa, hR = hC + sa;
+    const sxC = ax[i] + Math.cos(hC) * sd, syC = ay[i] + Math.sin(hC) * sd;
+    const sxL = ax[i] + Math.cos(hL) * sd, syL = ay[i] + Math.sin(hL) * sd;
+    const sxR = ax[i] + Math.cos(hR) * sd, syR = ay[i] + Math.sin(hR) * sd;
+    const sC = sampleGridWrap(grid, sxC, syC, W, H);
+    const sL = sampleGridWrap(grid, sxL, syL, W, H);
+    const sR = sampleGridWrap(grid, sxR, syR, W, H);
+    if (sC > sL && sC > sR) {}
+    else if (sC < sL && sC < sR) ah[i] += (Math.random() < 0.5 ? -1 : 1) * sp.turnAngle;
+    else if (sL > sR) ah[i] -= sp.turnAngle;
+    else if (sR > sL) ah[i] += sp.turnAngle;
+    let nx = ax[i] + Math.cos(ah[i]) * sp.moveSpeed;
+    let ny = ay[i] + Math.sin(ah[i]) * sp.moveSpeed;
+    if (nx < 0) nx += W; else if (nx >= W) nx -= W;
+    if (ny < 0) ny += H; else if (ny >= H) ny -= H;
+    ax[i] = nx; ay[i] = ny;
+    grid[(ny | 0) * W + (nx | 0)] += sp.depositAmount;
+  },
+  update(state) {
+    const sp = state.systemParams.physarum;
+    const n = state.agents.x.length;
+    for (let i = 0; i < n; i++) this.step(i, state.frame, state);
+    diffuseAndDecay(state.pheromone, state.pheromoneTemp, state.pheromoneW, state.pheromoneH, sp.decayFactor);
+  },
+  render(ctx, state) {
+    const grid = state.pheromone;
+    const img = state.physarumImg;
+    const data = img.data;
+    const [pr, pg, pb] = getParticleRGB();
+    const [bgR, bgG, bgB] = getPalette().bg;
+    const alphaScale = state.globalParams.particleAlpha;
+    for (let i = 0, j = 0, n = grid.length; i < n; i++, j += 4) {
+      let a = grid[i] * 0.04 * alphaScale;
+      if (a > 1) a = 1;
+      const inv = 1 - a;
+      data[j]     = inv * bgR + a * pr;
+      data[j + 1] = inv * bgG + a * pg;
+      data[j + 2] = inv * bgB + a * pb;
+      data[j + 3] = 255;
+    }
+    state.physarumOffCtx.putImageData(img, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'low';
+    ctx.drawImage(state.physarumOff, 0, 0, state.w, state.h);
+  }
+};
+
+// ============================================================
+// SYSTEM 4: DLA, diffusion limited aggregation.
+// Walkers do random walks in the plane. When a walker steps
+// into a cell adjacent to a stuck pixel, it sticks and a new
+// walker respawns far from the cluster. The stuck pixels are
+// painted onto an offscreen canvas that we blit over the
+// faded trail each frame, so the structure stays crisp while
+// the wandering walkers leave soft ink trails.
+// ============================================================
+const dlaSystem = {
+  init(state) {
+    state.dlaGrid = new Uint8Array(state.w * state.h);
+    state.dlaW = state.w;
+    state.dlaH = state.h;
+    state.dlaCanvas = document.createElement('canvas');
+    state.dlaCanvas.width = state.w;
+    state.dlaCanvas.height = state.h;
+    state.dlaCtx = state.dlaCanvas.getContext('2d');
+    // Seed: single dot at center.
+    const cx = (state.w * 0.5) | 0;
+    const cy = (state.h * 0.5) | 0;
+    state.dlaGrid[cy * state.w + cx] = 1;
+    const [pr, pg, pb] = getParticleRGB();
+    state.dlaCtx.fillStyle = `rgb(${pr}, ${pg}, ${pb})`;
+    state.dlaCtx.fillRect(cx - 1, cy - 1, 2, 2);
+    // Spawn walkers on a circle around the seed.
+    const sp = state.systemParams.dla;
+    const n = sp.walkerCount;
+    state.particles = new Array(n);
+    for (let i = 0; i < n; i++) state.particles[i] = spawnDlaWalker(state, cx, cy);
+  },
+  step(p, t, state) {
+    const sp = state.systemParams.dla;
+    const W = state.dlaW, H = state.dlaH;
+    // Brownian step.
+    p.x += (Math.random() - 0.5) * 2 * sp.stepSize;
+    p.y += (Math.random() - 0.5) * 2 * sp.stepSize;
+    // If a walker drifts off, respawn on a fresh circle.
+    if (p.x < 1 || p.x >= W - 1 || p.y < 1 || p.y >= H - 1) {
+      const fresh = spawnDlaWalker(state, W * 0.5, H * 0.5);
+      p.x = fresh.x; p.y = fresh.y;
+      return;
+    }
+    const ix = p.x | 0, iy = p.y | 0;
+    const g = state.dlaGrid;
+    // 4 neighbor stick test.
+    if (g[iy * W + ix - 1] || g[iy * W + ix + 1] ||
+        g[(iy - 1) * W + ix] || g[(iy + 1) * W + ix]) {
+      g[iy * W + ix] = 1;
+      const [pr, pg, pb] = getParticleRGB();
+      state.dlaCtx.fillStyle = `rgba(${pr}, ${pg}, ${pb}, 0.92)`;
+      state.dlaCtx.fillRect(ix, iy, 1, 1);
+      const fresh = spawnDlaWalker(state, W * 0.5, H * 0.5);
+      p.x = fresh.x; p.y = fresh.y;
+    }
+  },
+  update(state) {
+    const t = state.frame;
+    const parts = state.particles;
+    for (let i = 0, n = parts.length; i < n; i++) this.step(parts[i], t, state);
+  },
+  render(ctx, state) {
+    // Structure stays crisp. Drawing on top of the faded trail
+    // overwrites any decay that would have eaten it.
+    ctx.drawImage(state.dlaCanvas, 0, 0);
+    // Walkers as very faint ink so the wandering motion shows
+    // without overwhelming the structure.
+    const [r, g, b] = getParticleRGB();
+    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${state.globalParams.particleAlpha * 0.35})`;
+    const sz = state.globalParams.particleSize;
+    const half = sz * 0.5;
+    const parts = state.particles;
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i];
+      ctx.fillRect(p.x - half, p.y - half, sz, sz);
+    }
+  }
+};
+
+function spawnDlaWalker(state, cx, cy) {
+  const sp = state.systemParams.dla;
+  const r = Math.min(state.dlaW, state.dlaH) * sp.spawnRadius * 0.5;
+  const a = Math.random() * Math.PI * 2;
+  return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r };
+}
+
+// ============================================================
+// SYSTEM 5: Gray-Scott reaction-diffusion.
+// Two chemicals U and V on a downsampled grid. Each frame we
+// run a few iterations of the standard reaction-diffusion PDE.
+// Different (F, k) pairs produce spots, stripes, mazes, and
+// crystalline branching. v concentration is rendered as the
+// visible field, blended over the palette background.
+// ============================================================
+const RD_DOWNSAMPLE = 3;
+
+function initRDGrid() {
+  state.rdW = Math.max(1, Math.floor(state.w / RD_DOWNSAMPLE));
+  state.rdH = Math.max(1, Math.floor(state.h / RD_DOWNSAMPLE));
+  const sz = state.rdW * state.rdH;
+  state.rdU = new Float32Array(sz);
+  state.rdV = new Float32Array(sz);
+  state.rdUNext = new Float32Array(sz);
+  state.rdVNext = new Float32Array(sz);
+  for (let i = 0; i < sz; i++) state.rdU[i] = 1;
+  // A few blobs of v seed the patterning. Without seeds the
+  // field stays uniform forever.
+  const blobs = 6;
+  for (let b = 0; b < blobs; b++) {
+    const cx = (Math.random() * state.rdW) | 0;
+    const cy = (Math.random() * state.rdH) | 0;
+    const r = 5 + (Math.random() * 5) | 0;
+    for (let y = Math.max(0, cy - r); y < Math.min(state.rdH, cy + r); y++) {
+      for (let x = Math.max(0, cx - r); x < Math.min(state.rdW, cx + r); x++) {
+        if (Math.hypot(x - cx, y - cy) < r) {
+          state.rdU[y * state.rdW + x] = 0.5;
+          state.rdV[y * state.rdW + x] = 0.25;
+        }
+      }
+    }
+  }
+  state.rdCanvas = document.createElement('canvas');
+  state.rdCanvas.width = state.rdW;
+  state.rdCanvas.height = state.rdH;
+  state.rdCtx = state.rdCanvas.getContext('2d');
+  state.rdImg = state.rdCtx.createImageData(state.rdW, state.rdH);
+}
+
+const rdSystem = {
+  skipTrailDecay: true,
+  init(state) {
+    initRDGrid();
+    state.particles = [];
+  },
+  step() {},
+  update(state) {
+    const sp = state.systemParams.rd;
+    const W = state.rdW, H = state.rdH;
+    let U = state.rdU, V = state.rdV;
+    let UN = state.rdUNext, VN = state.rdVNext;
+    const iters = sp.iterations;
+    for (let it = 0; it < iters; it++) {
+      for (let y = 1; y < H - 1; y++) {
+        const row = y * W, rowM = row - W, rowP = row + W;
+        for (let x = 1; x < W - 1; x++) {
+          const i = row + x;
+          const u = U[i], v = V[i];
+          const lapU = U[i - 1] + U[i + 1] + U[rowM + x] + U[rowP + x] - 4 * u;
+          const lapV = V[i - 1] + V[i + 1] + V[rowM + x] + V[rowP + x] - 4 * v;
+          const uvv = u * v * v;
+          UN[i] = u + sp.Du * lapU - uvv + sp.F * (1 - u);
+          VN[i] = v + sp.Dv * lapV + uvv - (sp.F + sp.k) * v;
+        }
+      }
+      // Zero flux boundary: copy edges from the current frame.
+      for (let x = 0; x < W; x++) {
+        UN[x] = U[x]; VN[x] = V[x];
+        const i = (H - 1) * W + x;
+        UN[i] = U[i]; VN[i] = V[i];
+      }
+      for (let y = 0; y < H; y++) {
+        const i = y * W;
+        UN[i] = U[i]; VN[i] = V[i];
+        const j = i + W - 1;
+        UN[j] = U[j]; VN[j] = V[j];
+      }
+      // Swap.
+      const tU = U; U = UN; UN = tU;
+      const tV = V; V = VN; VN = tV;
+    }
+    state.rdU = U; state.rdV = V;
+    state.rdUNext = UN; state.rdVNext = VN;
+  },
+  render(ctx, state) {
+    const V = state.rdV;
+    const img = state.rdImg;
+    const data = img.data;
+    const [pr, pg, pb] = getParticleRGB();
+    const [bgR, bgG, bgB] = getPalette().bg;
+    const gain = 3.5 * state.globalParams.particleAlpha;
+    for (let i = 0, j = 0, n = V.length; i < n; i++, j += 4) {
+      let a = V[i] * gain;
+      if (a > 1) a = 1; else if (a < 0) a = 0;
+      const inv = 1 - a;
+      data[j]     = inv * bgR + a * pr;
+      data[j + 1] = inv * bgG + a * pg;
+      data[j + 2] = inv * bgB + a * pb;
+      data[j + 3] = 255;
+    }
+    state.rdCtx.putImageData(img, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'low';
+    ctx.drawImage(state.rdCanvas, 0, 0, state.w, state.h);
+  }
+};
+
+// ============================================================
+// SYSTEM 6: Boids flocking.
+// Each particle steers using three local rules: separation,
+// alignment, and cohesion. A spatial hash keeps neighbor
+// lookup linear in the number of particles. Trails accumulate
+// via the global trail decay so the swarm leaves wind-like
+// streaks across the canvas.
+// ============================================================
+const boidSystem = {
+  init(state) {
+    const n = state.systemParams.boids.particleCount;
+    state.particles = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const sp = 0.8 + Math.random() * 1.5;
+      state.particles[i] = {
+        x: Math.random() * state.w,
+        y: Math.random() * state.h,
+        vx: Math.cos(ang) * sp,
+        vy: Math.sin(ang) * sp
+      };
+    }
+  },
+  step() {},
+  update(state) {
+    const sp = state.systemParams.boids;
+    const parts = state.particles;
+    const n = parts.length;
+    const radius = sp.neighborRadius;
+    const r2 = radius * radius;
+    // Build spatial hash so neighbor lookup is O(n) not O(n^2).
+    const cellSize = radius;
+    const cols = Math.max(1, Math.ceil(state.w / cellSize));
+    const rows = Math.max(1, Math.ceil(state.h / cellSize));
+    const cells = new Array(cols * rows);
+    for (let i = 0; i < n; i++) {
+      const p = parts[i];
+      const c = Math.min(cols - 1, Math.max(0, (p.x / cellSize) | 0));
+      const r = Math.min(rows - 1, Math.max(0, (p.y / cellSize) | 0));
+      const ci = r * cols + c;
+      if (!cells[ci]) cells[ci] = [];
+      cells[ci].push(i);
+    }
+    const maxSpeed = sp.maxSpeed;
+    const minSpeed = Math.max(0.2, maxSpeed * 0.3);
+    for (let i = 0; i < n; i++) {
+      const p = parts[i];
+      const c = Math.min(cols - 1, Math.max(0, (p.x / cellSize) | 0));
+      const r = Math.min(rows - 1, Math.max(0, (p.y / cellSize) | 0));
+      let avgX = 0, avgY = 0, avgVX = 0, avgVY = 0;
+      let sepX = 0, sepY = 0;
+      let count = 0;
+      for (let dr = -1; dr <= 1; dr++) {
+        const rr = r + dr;
+        if (rr < 0 || rr >= rows) continue;
+        for (let dc = -1; dc <= 1; dc++) {
+          const cc = c + dc;
+          if (cc < 0 || cc >= cols) continue;
+          const cell = cells[rr * cols + cc];
+          if (!cell) continue;
+          for (let kk = 0; kk < cell.length; kk++) {
+            const j = cell[kk];
+            if (j === i) continue;
+            const q = parts[j];
+            const dx = q.x - p.x;
+            const dy = q.y - p.y;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < r2 && d2 > 0.01) {
+              avgX += q.x; avgY += q.y;
+              avgVX += q.vx; avgVY += q.vy;
+              sepX -= dx / d2;
+              sepY -= dy / d2;
+              count++;
+            }
+          }
+        }
+      }
+      let ax = 0, ay = 0;
+      if (count > 0) {
+        avgX /= count; avgY /= count;
+        avgVX /= count; avgVY /= count;
+        ax += (avgX - p.x) * sp.cohesion;
+        ay += (avgY - p.y) * sp.cohesion;
+        ax += (avgVX - p.vx) * sp.alignment;
+        ay += (avgVY - p.vy) * sp.alignment;
+        ax += sepX * sp.separation * 60;
+        ay += sepY * sp.separation * 60;
+      }
+      p.vx += ax;
+      p.vy += ay;
+      // Speed clamp keeps motion lively and bounded.
+      const v = Math.hypot(p.vx, p.vy);
+      if (v > maxSpeed) { p.vx *= maxSpeed / v; p.vy *= maxSpeed / v; }
+      else if (v < minSpeed && v > 0) { p.vx *= minSpeed / v; p.vy *= minSpeed / v; }
+      p.x += p.vx;
+      p.y += p.vy;
+      if (p.x < 0) p.x += state.w; else if (p.x >= state.w) p.x -= state.w;
+      if (p.y < 0) p.y += state.h; else if (p.y >= state.h) p.y -= state.h;
+    }
+  },
+  render(ctx, state) {
+    // Draw each boid as a short streak oriented along its
+    // velocity. Trail decay turns these into wind ribbons.
+    const sz = state.globalParams.particleSize;
+    ctx.strokeStyle = getParticleColor();
+    ctx.lineWidth = Math.max(0.5, sz * 0.7);
+    ctx.lineCap = 'round';
+    const parts = state.particles;
+    ctx.beginPath();
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i];
+      ctx.moveTo(p.x - p.vx * 1.5, p.y - p.vy * 1.5);
+      ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+  }
+};
+
+const systems = {
+  curl: curlSystem,
+  clifford: cliffordSystem,
+  physarum: physarumSystem,
+  dla: dlaSystem,
+  rd: rdSystem,
+  boids: boidSystem
+};
+
+// ============================================================
+// Control parameter registry for hand quadrants. The list and
+// ordering are per-system; the quadrant grid is built from
+// this. Heavy operations (particle count reseed) are excluded
+// because pinch is continuous and would cause thrash.
+// ============================================================
+function getControlParams() {
+  const gp = state.globalParams;
+  const list = [
+    // Scale and Rotate are bipolar feedback effects. Pinch
+    // closed = max negative, pinch open = max positive, pinch
+    // in the middle snaps to zero so it is easy to park.
+    { name: 'Scale',       obj: gp, key: 'feedbackScale',    min: -0.04, max: 0.04, snapTo: 0, fmt: 'sign' },
+    { name: 'Rotate',      obj: gp, key: 'feedbackRotate',   min: -0.05, max: 0.05, snapTo: 0, fmt: 'sign' },
+    { name: 'Trail Decay', obj: gp, key: 'trailDecay',       min: 0.01,  max: 0.20 },
+    { name: 'Size',        obj: gp, key: 'particleSize',     min: 0.4,   max: 3.0 },
+    { name: 'Alpha',       obj: gp, key: 'particleAlpha',    min: 0.05,  max: 1.0 },
+    { name: 'Vignette',    obj: gp, key: 'vignetteStrength', min: 0,     max: 0.5, after: updateVignette }
+  ];
+  if (state.currentSystem === 'curl') {
+    const sp = state.systemParams.curl;
+    list.push({ name: 'Field Scale',    obj: sp, key: 'scale',         min: 0.0005, max: 0.01 });
+    list.push({ name: 'Time Speed',     obj: sp, key: 'timeSpeed',     min: 0,      max: 0.001 });
+    list.push({ name: 'Octaves',        obj: sp, key: 'octaves',       min: 1,      max: 4, fmt: 'int' });
+    list.push({ name: 'Particle Speed', obj: sp, key: 'particleSpeed', min: 0.1,    max: 3.0 });
+  } else if (state.currentSystem === 'clifford') {
+    const sp = state.systemParams.clifford;
+    list.push({ name: 'a', obj: sp, key: 'a', min: -3, max: 3 });
+    list.push({ name: 'b', obj: sp, key: 'b', min: -3, max: 3 });
+    list.push({ name: 'c', obj: sp, key: 'c', min: -3, max: 3 });
+    list.push({ name: 'd', obj: sp, key: 'd', min: -3, max: 3 });
+    list.push({ name: 'Iter / Frame', obj: sp, key: 'iterationsPerFrame', min: 1,   max: 5,    fmt: 'int' });
+    list.push({ name: 'Lifespan',     obj: sp, key: 'lifespan',           min: 100, max: 1000, fmt: 'int' });
+  } else if (state.currentSystem === 'physarum') {
+    const sp = state.systemParams.physarum;
+    list.push({ name: 'Sensor Dist',  obj: sp, key: 'sensorDistance', min: 3,    max: 30 });
+    list.push({ name: 'Sensor Angle', obj: sp, key: 'sensorAngle',    min: 0.1,  max: 1.5 });
+    list.push({ name: 'Turn Angle',   obj: sp, key: 'turnAngle',      min: 0.1,  max: 1.5 });
+    list.push({ name: 'Move Speed',   obj: sp, key: 'moveSpeed',      min: 0.5,  max: 3.0 });
+    list.push({ name: 'Deposit',      obj: sp, key: 'depositAmount',  min: 1,    max: 20 });
+    list.push({ name: 'Decay Factor', obj: sp, key: 'decayFactor',    min: 0.85, max: 0.99 });
+  } else if (state.currentSystem === 'dla') {
+    const sp = state.systemParams.dla;
+    list.push({ name: 'Step Size',     obj: sp, key: 'stepSize',    min: 0.5, max: 3.5 });
+    list.push({ name: 'Spawn Radius',  obj: sp, key: 'spawnRadius', min: 0.2, max: 1.0 });
+  } else if (state.currentSystem === 'rd') {
+    const sp = state.systemParams.rd;
+    list.push({ name: 'Feed (F)',   obj: sp, key: 'F',          min: 0.01,  max: 0.08  });
+    list.push({ name: 'Kill (k)',   obj: sp, key: 'k',          min: 0.04,  max: 0.075 });
+    list.push({ name: 'Du',         obj: sp, key: 'Du',         min: 0.08,  max: 0.25  });
+    list.push({ name: 'Dv',         obj: sp, key: 'Dv',         min: 0.02,  max: 0.12  });
+    list.push({ name: 'Iterations', obj: sp, key: 'iterations', min: 1,     max: 8,    fmt: 'int' });
+  } else if (state.currentSystem === 'boids') {
+    const sp = state.systemParams.boids;
+    list.push({ name: 'Neighbor R',  obj: sp, key: 'neighborRadius', min: 12,    max: 80 });
+    list.push({ name: 'Cohesion',    obj: sp, key: 'cohesion',       min: 0,     max: 0.02 });
+    list.push({ name: 'Alignment',   obj: sp, key: 'alignment',      min: 0,     max: 0.15 });
+    list.push({ name: 'Separation',  obj: sp, key: 'separation',     min: 0,     max: 0.08 });
+    list.push({ name: 'Max Speed',   obj: sp, key: 'maxSpeed',       min: 0.8,   max: 6.0 });
+  }
+  return list;
+}
+
+function getGridLayout() {
+  const params = getControlParams();
+  const cols = 4;
+  const rows = Math.ceil(params.length / cols);
+  return { params, cols, rows };
+}
+
+function cellIndexFromXY(nx, ny, layout) {
+  const col = Math.min(layout.cols - 1, Math.max(0, Math.floor(nx * layout.cols)));
+  const row = Math.min(layout.rows - 1, Math.max(0, Math.floor(ny * layout.rows)));
+  const idx = row * layout.cols + col;
+  return idx < layout.params.length ? idx : -1;
+}
+
+function getNormalized(p) {
+  return Math.max(0, Math.min(1, (p.obj[p.key] - p.min) / (p.max - p.min)));
+}
+
+// The param the two hand spread takes over: the one with the
+// biggest visual swing on each system, so opening and closing
+// your arms reads as a dramatic transformation.
+const THICKNESS_PARAM = {
+  curl:     { path: ['systemParams', 'curl', 'scale'],         min: 0.0005, max: 0.01 },
+  clifford: { path: ['systemParams', 'clifford', 'a'],         min: -3,     max: 3 },
+  physarum: { path: ['systemParams', 'physarum', 'sensorAngle'], min: 0.1, max: 1.5 },
+  dla:      { path: ['systemParams', 'dla', 'stepSize'],       min: 0.5,    max: 3.5 },
+  rd:       { path: ['systemParams', 'rd', 'F'],               min: 0.01,   max: 0.08 },
+  boids:    { path: ['systemParams', 'boids', 'alignment'],    min: 0,      max: 0.15 }
+};
+
+function thicknessTarget() {
+  const t = THICKNESS_PARAM[state.currentSystem];
+  if (!t) return null;
+  let obj = state;
+  for (let i = 0; i < t.path.length - 1; i++) obj = obj[t.path[i]];
+  return { obj, key: t.path[t.path.length - 1], min: t.min, max: t.max };
+}
+
+function isThicknessParam(p) {
+  const t = thicknessTarget();
+  if (!t) return false;
+  return p.obj === t.obj && p.key === t.key;
+}
+
+function setParamValue(p, normalized) {
+  let v = p.min + normalized * (p.max - p.min);
+  if (p.fmt === 'int') v = Math.round(v);
+  p.obj[p.key] = v;
+  if (p.after) p.after();
+}
+
+function formatValue(p) {
+  const v = p.obj[p.key];
+  if (p.fmt === 'int') return String(Math.round(v));
+  if (p.fmt === 'sign') {
+    const s = v >= 0 ? '+' : '';
+    return s + v.toFixed(3);
+  }
+  if (Math.abs(v) < 0.1) return v.toFixed(4);
+  if (Math.abs(v) < 1)   return v.toFixed(3);
+  if (Math.abs(v) < 10)  return v.toFixed(2);
+  return v.toFixed(1);
+}
+
+// ============================================================
+// Hand tracking. Two hands tracked independently. Each hand
+// position chooses a quadrant (param), pinch (thumb to index)
+// sets that param's value via soft takeover so a stale pinch
+// position does not snap the parameter when you enter a cell.
+// ============================================================
+const hand = {
+  enabled: false,
+  loading: false,
+  loaded: false,
+  landmarker: null,
+  video: null,
+  videoReady: false,
+  lastVideoTime: -1,
+  smoothing: 0.70,
+  showGrid: true,
+  // Lerped grid opacity: 1 while any hand is in frame, 0 when
+  // both leave, so the canvas is unobscured when nobody is
+  // present.
+  gridAlpha: 0,
+  hands: [
+    { detected: false, rawX: 0.5, rawY: 0.5, rawPinch: 0.5, rawThumbX: 0.5, rawThumbY: 0.5, smoothX: 0.5, smoothY: 0.5, smoothPinch: 0.5, smoothThumbX: 0.5, smoothThumbY: 0.5, lastIdx: -1, armed: false, lastSeen: 0 },
+    { detected: false, rawX: 0.5, rawY: 0.5, rawPinch: 0.5, rawThumbX: 0.5, rawThumbY: 0.5, smoothX: 0.5, smoothY: 0.5, smoothPinch: 0.5, smoothThumbX: 0.5, smoothThumbY: 0.5, lastIdx: -1, armed: false, lastSeen: 0 }
+  ],
+  sparkles: [],
+  twoHandFlashUntil: 0
+};
+
+function setHandStatus(text) { handStatusEl.textContent = text; }
+
+async function initHandTracking() {
+  if (hand.loading || hand.loaded) return;
+  hand.loading = true;
+  handPreviewEl.style.display = 'block';
+  setHandStatus('loading model...');
+  try {
+    const mod = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/+esm');
+    const vision = await mod.FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+    );
+    hand.landmarker = await mod.HandLandmarker.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+        delegate: 'GPU'
+      },
+      runningMode: 'VIDEO',
+      numHands: 2
+    });
+    setHandStatus('requesting camera...');
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 640, height: 480, facingMode: 'user' },
+      audio: false
+    });
+    hand.video = document.createElement('video');
+    hand.video.style.display = 'none';
+    hand.video.autoplay = true;
+    hand.video.playsInline = true;
+    hand.video.muted = true;
+    hand.video.srcObject = stream;
+    document.body.appendChild(hand.video);
+    await new Promise((resolve) => { hand.video.onloadedmetadata = resolve; });
+    await hand.video.play();
+    handPreviewCanvas.width = hand.video.videoWidth || 640;
+    handPreviewCanvas.height = hand.video.videoHeight || 480;
+    hand.videoReady = true;
+    hand.loaded = true;
+    hand.loading = false;
+    setHandStatus('ready');
+  } catch (err) {
+    hand.loading = false;
+    setHandStatus('failed: ' + (err && err.message ? err.message : String(err)));
+    console.error('Hand tracking init failed:', err);
+  }
+}
+
+function disableHandTracking() {
+  hand.enabled = false;
+  handPreviewEl.style.display = 'none';
+  if (hand.video && hand.video.srcObject) hand.video.srcObject.getTracks().forEach((t) => t.stop());
+  hand.videoReady = false;
+  hand.loaded = false;
+  hand.landmarker = null;
+  for (const h of hand.hands) { h.detected = false; h.lastIdx = -1; h.armed = false; }
+}
+
+function updateHand() {
+  if (!hand.enabled || !hand.videoReady) return;
+  const now = performance.now();
+  if (hand.video.currentTime !== hand.lastVideoTime) {
+    hand.lastVideoTime = hand.video.currentTime;
+    let results = null;
+    try { results = hand.landmarker.detectForVideo(hand.video, now); }
+    catch (e) { /* skip frame */ }
+
+    const wasDetected = hand.hands.map((h) => h.detected);
+    for (const h of hand.hands) h.detected = false;
+    if (results && results.landmarks && results.landmarks.length > 0) {
+      // Order hands left to right by landmark[9].x so hand index
+      // stays consistent across frames.
+      const ordered = results.landmarks
+        .map((lm, i) => ({ lm, x: lm[9].x }))
+        .sort((a, b) => a.x - b.x)
+        .map((o) => o.lm);
+      for (let i = 0; i < Math.min(ordered.length, 2); i++) {
+        const lm = ordered[i];
+        const h = hand.hands[i];
+        h.detected = true;
+        h.lastSeen = now;
+        h.rawX = 1 - lm[9].x;
+        h.rawY = lm[9].y;
+        h.rawThumbX = 1 - lm[4].x;
+        h.rawThumbY = lm[4].y;
+        const dx = lm[4].x - lm[8].x;
+        const dy = lm[4].y - lm[8].y;
+        const dist = Math.hypot(dx, dy);
+        // Closed pinch ~0.02, spread ~0.30. Closed = 0 = min, spread = 1 = max.
+        h.rawPinch = Math.max(0, Math.min(1, (dist - 0.02) / 0.28));
+      }
+      drawHandPreview(ordered);
+    } else {
+      drawHandPreview(null);
+    }
+    // Reset armed state on hands that just left or just appeared.
+    for (let i = 0; i < hand.hands.length; i++) {
+      if (hand.hands[i].detected !== wasDetected[i]) {
+        hand.hands[i].armed = false;
+        hand.hands[i].lastIdx = -1;
+      }
+    }
+    const num = hand.hands.filter((h) => h.detected).length;
+    setHandStatus(num === 0 ? 'no hand' : `${num} hand${num > 1 ? 's' : ''} tracked`);
+  }
+
+  // Ease the grid opacity toward 1 when any hand is in frame
+  // and toward 0 when none are. 0.08 per frame is roughly a
+  // 200 ms fade at 60 fps.
+  const anyDetected = hand.hands.some((h) => h.detected);
+  const targetAlpha = anyDetected ? 1 : 0;
+  hand.gridAlpha += (targetAlpha - hand.gridAlpha) * 0.08;
+
+  // Smooth.
+  const a = hand.smoothing;
+  for (const h of hand.hands) {
+    if (!h.detected) continue;
+    h.smoothX = h.smoothX * a + h.rawX * (1 - a);
+    h.smoothY = h.smoothY * a + h.rawY * (1 - a);
+    h.smoothPinch = h.smoothPinch * a + h.rawPinch * (1 - a);
+    h.smoothThumbX = h.smoothThumbX * a + h.rawThumbX * (1 - a);
+    h.smoothThumbY = h.smoothThumbY * a + h.rawThumbY * (1 - a);
+  }
+
+  // Apply: per detected hand, find its quadrant and set that
+  // param via soft takeover. Both hands run through this same
+  // loop with independent state, so two hands in two cells
+  // drive two parameters at the same time. When a hand enters
+  // a new cell, the value waits for its pinch to cross the
+  // param's current value, then locks on and follows you.
+  const layout = getGridLayout();
+  const detectedHands = hand.hands.filter((h) => h.detected);
+  const twoHands = detectedHands.length === 2;
+  for (const h of hand.hands) {
+    if (!h.detected) continue;
+    const idx = cellIndexFromXY(h.smoothX, h.smoothY, layout);
+    if (idx !== h.lastIdx) {
+      h.lastIdx = idx;
+      h.armed = false;
+      h.entryPinch = h.smoothPinch;
+    }
+    if (idx < 0) continue;
+    const p = layout.params[idx];
+    // When two hands are up, the thickness cell is taken over
+    // by hand-to-hand distance. Skip pinch control for it so
+    // the two inputs do not fight.
+    if (twoHands && isThicknessParam(p)) continue;
+    if (!h.armed) {
+      const cur = getNormalized(p);
+      if ((h.entryPinch <= cur && h.smoothPinch >= cur) ||
+          (h.entryPinch >= cur && h.smoothPinch <= cur)) {
+        h.armed = true;
+      }
+    }
+    if (h.armed) {
+      let pinchVal = h.smoothPinch;
+      // Bipolar params: snap to their zero target when the
+      // pinch is near the middle so it is easy to park at no
+      // effect.
+      if (p.snapTo !== undefined) {
+        const snapNorm = (p.snapTo - p.min) / (p.max - p.min);
+        if (Math.abs(pinchVal - snapNorm) < 0.08) pinchVal = snapNorm;
+      }
+      setParamValue(p, pinchVal);
+    }
+  }
+
+  // Hand-to-hand distance drives the parameter that produces
+  // the biggest visible swing on the current system. The map
+  // is in THICKNESS_PARAM above; arms wide = max, arms close = min.
+  if (twoHands) {
+    const a = detectedHands[0], b = detectedHands[1];
+    const d = Math.hypot(a.smoothX - b.smoothX, a.smoothY - b.smoothY);
+    const n = Math.max(0, Math.min(1, d / 0.8));
+    const tgt = thicknessTarget();
+    if (tgt) tgt.obj[tgt.key] = tgt.min + n * (tgt.max - tgt.min);
+  }
+
+  refreshControllers();
+
+  // Two-hand magic flourish. Trigger a brief flash when both
+  // hands are close and pinched closed at the same time.
+  const both = hand.hands.filter((h) => h.detected);
+  if (both.length === 2) {
+    const dx = (both[0].smoothX - both[1].smoothX);
+    const dy = (both[0].smoothY - both[1].smoothY);
+    const d = Math.hypot(dx, dy);
+    if (d < 0.18 && both[0].smoothPinch < 0.18 && both[1].smoothPinch < 0.18) {
+      if (now - hand.twoHandFlashUntil > 1500) {
+        hand.twoHandFlashUntil = now + 600;
+        reseed();
+      }
+    }
+  }
+
+  updateSparkles();
+}
+
+// ============================================================
+// Hand preview (webcam thumbnail with skeleton overlay).
+// ============================================================
+function drawHandPreview(landmarksList) {
+  if (handPreviewEl.style.display === 'none' || !hand.video) return;
+  const c = handPreviewCanvas, cc = handPreviewCtx;
+  cc.save();
+  cc.scale(-1, 1);
+  cc.drawImage(hand.video, -c.width, 0, c.width, c.height);
+  cc.restore();
+  if (!landmarksList) return;
+  const CONNECTIONS = [
+    [0,1],[1,2],[2,3],[3,4],
+    [0,5],[5,6],[6,7],[7,8],
+    [5,9],[9,10],[10,11],[11,12],
+    [9,13],[13,14],[14,15],[15,16],
+    [13,17],[17,18],[18,19],[19,20],
+    [0,17]
+  ];
+  const colors = ['rgba(120, 220, 255, 0.85)', 'rgba(255, 180, 120, 0.85)'];
+  for (let li = 0; li < landmarksList.length; li++) {
+    const landmarks = landmarksList[li];
+    cc.strokeStyle = colors[li % colors.length];
+    cc.lineWidth = 2;
+    for (const [a, b] of CONNECTIONS) {
+      const pa = landmarks[a], pb = landmarks[b];
+      cc.beginPath();
+      cc.moveTo((1 - pa.x) * c.width, pa.y * c.height);
+      cc.lineTo((1 - pb.x) * c.width, pb.y * c.height);
+      cc.stroke();
+    }
+    cc.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    for (const p of landmarks) {
+      cc.beginPath();
+      cc.arc((1 - p.x) * c.width, p.y * c.height, 2.5, 0, Math.PI * 2);
+      cc.fill();
+    }
+    const t = landmarks[4], idx = landmarks[8];
+    cc.strokeStyle = 'rgba(255, 200, 60, 0.95)';
+    cc.lineWidth = 2.5;
+    cc.beginPath();
+    cc.moveTo((1 - t.x) * c.width, t.y * c.height);
+    cc.lineTo((1 - idx.x) * c.width, idx.y * c.height);
+    cc.stroke();
+  }
+}
+
+// ============================================================
+// Sparkles. Pure-overlay magic particles emitted near each
+// hand when both are detected. They drift and fade.
+// ============================================================
+function updateSparkles() {
+  const detected = hand.hands.filter((h) => h.detected);
+  if (detected.length === 2 && hand.sparkles.length < 80) {
+    for (let i = 0; i < 2; i++) {
+      const h = detected[Math.floor(Math.random() * 2)];
+      hand.sparkles.push({
+        x: h.smoothX * overlayCanvas.width + (Math.random() - 0.5) * 40,
+        y: h.smoothY * overlayCanvas.height + (Math.random() - 0.5) * 40,
+        vx: (Math.random() - 0.5) * 1.5,
+        vy: (Math.random() - 0.5) * 1.5 - 0.4,
+        life: 0,
+        maxLife: 70 + Math.random() * 70,
+        size: 1 + Math.random() * 2.5
+      });
+    }
+  }
+  for (let i = hand.sparkles.length - 1; i >= 0; i--) {
+    const s = hand.sparkles[i];
+    s.x += s.vx;
+    s.y += s.vy;
+    s.vx += (Math.random() - 0.5) * 0.08;
+    s.vy += (Math.random() - 0.5) * 0.08 - 0.005;
+    s.life++;
+    if (s.life >= s.maxLife) hand.sparkles.splice(i, 1);
+  }
+}
+
+// ============================================================
+// Overlay rendering: quadrant grid, hand cursors, two hand arc,
+// sparkles. All drawn on the overlay canvas which sits on top
+// of the particle canvas. No effect on the particle field.
+// ============================================================
+function drawOverlay() {
+  const o = overlayCanvas, oc = overlayCtx;
+  oc.clearRect(0, 0, o.width, o.height);
+  if (!hand.enabled) return;
+
+  // Quadrant grid. Faded in by hand.gridAlpha so the canvas
+  // is left alone when no hands are in frame.
+  if (hand.showGrid && hand.gridAlpha > 0.01) {
+    oc.save();
+    oc.globalAlpha = hand.gridAlpha;
+    const layout = getGridLayout();
+    const cellW = o.width / layout.cols;
+    const cellH = o.height / layout.rows;
+    const inkTone = state.globalParams.palette !== 'night';
+    const fg = inkTone ? 'rgba(20, 20, 20, ' : 'rgba(240, 240, 240, ';
+    const fg2 = inkTone ? 'rgba(10, 10, 10, ' : 'rgba(255, 255, 255, ';
+
+    // Grid lines.
+    oc.strokeStyle = fg + '0.10)';
+    oc.lineWidth = 1;
+    for (let c = 1; c < layout.cols; c++) {
+      oc.beginPath();
+      oc.moveTo(c * cellW, 0);
+      oc.lineTo(c * cellW, o.height);
+      oc.stroke();
+    }
+    for (let r = 1; r < layout.rows; r++) {
+      oc.beginPath();
+      oc.moveTo(0, r * cellH);
+      oc.lineTo(o.width, r * cellH);
+      oc.stroke();
+    }
+
+    const activeIndices = hand.hands.filter((h) => h.detected).map((h) => h.lastIdx);
+    const armedIndices = hand.hands.filter((h) => h.detected && h.armed).map((h) => h.lastIdx);
+    const twoHandsNow = hand.hands.filter((h) => h.detected).length === 2;
+
+    // Cells: name, value, normalized bar, highlight if active.
+    for (let i = 0; i < layout.params.length; i++) {
+      const row = Math.floor(i / layout.cols), col = i % layout.cols;
+      const x = col * cellW, y = row * cellH;
+      const active = activeIndices.indexOf(i) !== -1;
+      const armed = armedIndices.indexOf(i) !== -1;
+      const p = layout.params[i];
+      const distanceLocked = twoHandsNow && isThicknessParam(p);
+
+      if (distanceLocked) {
+        // Dashed amber border indicates the cell is driven by
+        // hand to hand distance rather than pinch.
+        oc.fillStyle = 'rgba(255, 200, 80, 0.08)';
+        oc.fillRect(x, y, cellW, cellH);
+        oc.setLineDash([6, 5]);
+        oc.strokeStyle = 'rgba(255, 200, 80, 0.85)';
+        oc.lineWidth = 2;
+        oc.strokeRect(x + 6, y + 6, cellW - 12, cellH - 12);
+        oc.setLineDash([]);
+        oc.font = 'bold 16px ui-monospace, "SF Mono", Menlo, monospace';
+        oc.fillStyle = 'rgba(255, 200, 80, 0.95)';
+        oc.textAlign = 'right';
+        oc.fillText('hands', x + cellW - 14, y + 12);
+        oc.textAlign = 'left';
+      } else if (active) {
+        oc.fillStyle = fg2 + (armed ? '0.10)' : '0.05)');
+        oc.fillRect(x, y, cellW, cellH);
+        oc.strokeStyle = fg + (armed ? '0.7)' : '0.35)');
+        oc.lineWidth = armed ? 2.5 : 1.5;
+        oc.strokeRect(x + 6, y + 6, cellW - 12, cellH - 12);
+      }
+
+      const labelAlpha = active ? '0.95)' : '0.55)';
+      const valueAlpha = active ? '1.00)' : '0.70)';
+      oc.fillStyle = fg + labelAlpha;
+      oc.font = '11px ui-monospace, "SF Mono", Menlo, monospace';
+      oc.textBaseline = 'top';
+      oc.textAlign = 'left';
+      oc.fillText(p.name, x + 14, y + 12);
+
+      oc.fillStyle = fg + valueAlpha;
+      oc.font = `${active ? 'bold ' : ''}${active ? 18 : 14}px ui-monospace, "SF Mono", Menlo, monospace`;
+      oc.fillText(formatValue(p), x + 14, y + 30);
+
+      // Min to max track + current marker.
+      const trackY = y + cellH - 14;
+      const trackL = x + 14, trackR = x + cellW - 14;
+      const norm = getNormalized(p);
+      oc.strokeStyle = fg + '0.25)';
+      oc.lineWidth = 1;
+      oc.beginPath();
+      oc.moveTo(trackL, trackY);
+      oc.lineTo(trackR, trackY);
+      oc.stroke();
+      // Notch at the snap target so the dead zone is visible.
+      if (p.snapTo !== undefined) {
+        const snapNorm = (p.snapTo - p.min) / (p.max - p.min);
+        const sx = trackL + (trackR - trackL) * snapNorm;
+        oc.strokeStyle = fg + (active ? '0.7)' : '0.4)');
+        oc.lineWidth = 1.5;
+        oc.beginPath();
+        oc.moveTo(sx, trackY - 5);
+        oc.lineTo(sx, trackY + 5);
+        oc.stroke();
+      }
+      oc.fillStyle = fg + valueAlpha;
+      const mx = trackL + (trackR - trackL) * norm;
+      oc.beginPath();
+      oc.arc(mx, trackY, active ? 4 : 2.5, 0, Math.PI * 2);
+      oc.fill();
+    }
+    oc.restore();
+  }
+
+  // Two hand magic arc + sparkles.
+  const detected = hand.hands.filter((h) => h.detected);
+  if (detected.length === 2) {
+    const h1 = detected[0], h2 = detected[1];
+    const x1 = h1.smoothX * o.width, y1 = h1.smoothY * o.height;
+    const x2 = h2.smoothX * o.width, y2 = h2.smoothY * o.height;
+    const dist = Math.hypot(x2 - x1, y2 - y1);
+    const closeness = Math.max(0, 1 - dist / (o.width * 0.5));
+    const t = performance.now();
+    const wobbleX = Math.sin(t * 0.0035) * 40 * (1 + closeness);
+    const wobbleY = Math.cos(t * 0.0048) * 40 * (1 + closeness);
+    const mx = (x1 + x2) * 0.5 + wobbleX;
+    const my = (y1 + y2) * 0.5 + wobbleY;
+
+    const grad = oc.createLinearGradient(x1, y1, x2, y2);
+    grad.addColorStop(0,    `rgba(255, 220, 140, ${0.55 + closeness * 0.4})`);
+    grad.addColorStop(0.5,  `rgba(255, 255, 255, ${0.65 + closeness * 0.3})`);
+    grad.addColorStop(1,    `rgba(140, 200, 255, ${0.55 + closeness * 0.4})`);
+    oc.strokeStyle = grad;
+    oc.lineWidth = 2 + closeness * 5;
+    oc.shadowBlur = 14;
+    oc.shadowColor = 'rgba(255, 220, 160, 0.9)';
+    oc.beginPath();
+    oc.moveTo(x1, y1);
+    oc.quadraticCurveTo(mx, my, x2, y2);
+    oc.stroke();
+    oc.shadowBlur = 0;
+
+    // Thumb to thumb line plus a thin circle whose diameter is
+    // the distance between the two thumbs (thumbs sit at
+    // antipodal points on the ring).
+    const t1x = h1.smoothThumbX * o.width,  t1y = h1.smoothThumbY * o.height;
+    const t2x = h2.smoothThumbX * o.width,  t2y = h2.smoothThumbY * o.height;
+    const tcx = (t1x + t2x) * 0.5,          tcy = (t1y + t2y) * 0.5;
+    const tdist = Math.hypot(t2x - t1x, t2y - t1y);
+    oc.strokeStyle = 'rgba(255, 220, 140, 0.55)';
+    oc.lineWidth = 1;
+    oc.beginPath();
+    oc.moveTo(t1x, t1y);
+    oc.lineTo(t2x, t2y);
+    oc.stroke();
+    oc.strokeStyle = 'rgba(255, 220, 140, 0.45)';
+    oc.lineWidth = 1.2;
+    oc.beginPath();
+    oc.arc(tcx, tcy, tdist * 0.5, 0, Math.PI * 2);
+    oc.stroke();
+
+    // Pinch ring: centered between the palms, radius driven by
+    // the sum of the two pinch values, so it grows as either
+    // hand opens. Dashed so it reads as a different layer.
+    const palmCX = (h1.smoothX + h2.smoothX) * 0.5 * o.width;
+    const palmCY = (h1.smoothY + h2.smoothY) * 0.5 * o.height;
+    const pinchSum = h1.smoothPinch + h2.smoothPinch;
+    oc.strokeStyle = 'rgba(170, 220, 255, 0.55)';
+    oc.lineWidth = 1.2;
+    oc.setLineDash([5, 4]);
+    oc.beginPath();
+    oc.arc(palmCX, palmCY, 30 + pinchSum * 90, 0, Math.PI * 2);
+    oc.stroke();
+    oc.setLineDash([]);
+  }
+
+  // Sparkles.
+  for (const s of hand.sparkles) {
+    const a = 1 - s.life / s.maxLife;
+    oc.fillStyle = `rgba(255, 235, 180, ${a * 0.9})`;
+    oc.beginPath();
+    oc.arc(s.x, s.y, s.size * (0.5 + a * 0.5), 0, Math.PI * 2);
+    oc.fill();
+  }
+
+  // Hand cursors. Outer halo + inner dot that scales with pinch.
+  const inkTone = state.globalParams.palette !== 'night';
+  for (let hi = 0; hi < hand.hands.length; hi++) {
+    const h = hand.hands[hi];
+    if (!h.detected) continue;
+    const x = h.smoothX * o.width, y = h.smoothY * o.height;
+    const halo = oc.createRadialGradient(x, y, 0, x, y, 56);
+    halo.addColorStop(0, hi === 0 ? 'rgba(120, 220, 255, 0.55)' : 'rgba(255, 180, 120, 0.55)');
+    halo.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    oc.fillStyle = halo;
+    oc.beginPath();
+    oc.arc(x, y, 56, 0, Math.PI * 2);
+    oc.fill();
+    const r = 5 + h.smoothPinch * 22;
+    oc.fillStyle = inkTone ? 'rgba(20, 20, 20, 0.95)' : 'rgba(255, 255, 255, 0.95)';
+    oc.beginPath();
+    oc.arc(x, y, r, 0, Math.PI * 2);
+    oc.fill();
+    oc.strokeStyle = inkTone ? 'rgba(255, 255, 255, 0.9)' : 'rgba(20, 20, 20, 0.9)';
+    oc.lineWidth = 2;
+    oc.beginPath();
+    oc.arc(x, y, r, 0, Math.PI * 2);
+    oc.stroke();
+  }
+}
+
+// ============================================================
+// Video feedback: copy the current canvas to an offscreen
+// buffer, then redraw it scaled and rotated around the
+// center. Done after the system render, so on trail based
+// systems the warp accumulates each frame for a fractal
+// tunnel / swirl. On grid based systems it warps each fresh
+// render once, which still reads as a moving lens.
+// ============================================================
+function applyFeedback() {
+  const s = state.globalParams.feedbackScale;
+  const r = state.globalParams.feedbackRotate;
+  if (Math.abs(s) < 0.0005 && Math.abs(r) < 0.0005) return;
+  if (!state.feedbackCanvas) {
+    state.feedbackCanvas = document.createElement('canvas');
+    state.feedbackCtx = state.feedbackCanvas.getContext('2d');
+  }
+  if (state.feedbackCanvas.width !== state.w || state.feedbackCanvas.height !== state.h) {
+    state.feedbackCanvas.width = state.w;
+    state.feedbackCanvas.height = state.h;
+  }
+  state.feedbackCtx.drawImage(canvas, 0, 0);
+  // Re paint bg so a shrinking scale does not leave the prior
+  // border showing through as a hard edge.
+  ctx.fillStyle = bgColor();
+  ctx.fillRect(0, 0, state.w, state.h);
+  ctx.save();
+  const cx = state.w * 0.5, cy = state.h * 0.5;
+  ctx.translate(cx, cy);
+  ctx.scale(1 + s, 1 + s);
+  ctx.rotate(r);
+  ctx.translate(-cx, -cy);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'low';
+  ctx.drawImage(state.feedbackCanvas, 0, 0);
+  ctx.restore();
+}
+
+// ============================================================
+// Main loop.
+// ============================================================
+function tick() {
+  updateHand();
+  if (!state.paused) {
+    state.frame++;
+    const sys = systems[state.currentSystem];
+    // Systems that render their own background (grid based ones)
+    // opt out of the trail decay rect.
+    if (!sys.skipTrailDecay) {
+      const [bgR, bgG, bgB] = getPalette().bg;
+      ctx.fillStyle = `rgba(${bgR}, ${bgG}, ${bgB}, ${state.globalParams.trailDecay})`;
+      ctx.fillRect(0, 0, state.w, state.h);
+    }
+    sys.update(state);
+    sys.render(ctx, state);
+    applyFeedback();
+  }
+  drawOverlay();
+  // Subtle grain crawl. Random jitter per frame reads as film
+  // grain rather than a sliding pattern.
+  if (getPalette().grain) {
+    grainEl.style.backgroundPosition = `${(Math.random() * 256) | 0}px ${(Math.random() * 256) | 0}px`;
+  }
+  requestAnimationFrame(tick);
+}
+
+function updateVignette() {
+  const v = state.globalParams.vignetteStrength;
+  vignetteEl.style.background =
+    `radial-gradient(ellipse at center, rgba(0,0,0,0) 45%, rgba(0,0,0,${v}) 100%)`;
+}
+
+// ============================================================
+// GUI.
+// ============================================================
+const gui = new GUI({ title: 'Particle Demo' });
+let systemFolder = null, handFolder = null;
+
+const guiActions = {
+  system: state.currentSystem,
+  reseed() { reseed(); },
+  pause() { state.paused = !state.paused; },
+  screenshot() { takeScreenshot(); },
+  reset() { resetDefaults(); },
+  minimize() { minimizeToPill(); }
+};
+
+const systemController = gui
+  .add(guiActions, 'system', {
+    'Curl Noise': 'curl',
+    'Clifford Attractor': 'clifford',
+    'Physarum': 'physarum',
+    'DLA (Dendrite)': 'dla',
+    'Reaction-Diffusion': 'rd',
+    'Flocking': 'boids'
+  })
+  .name('System')
+  .onChange((v) => switchSystem(v));
+
+const globalFolder = gui.addFolder('Global');
+globalFolder.add(state.globalParams, 'palette', { 'Ink (Black on Beige)': 'ink', 'Light (White on Gray)': 'light', 'Night (Gritty)': 'night' }).name('Palette').onChange(() => { onPaletteChange(); saveState(); });
+globalFolder.add(state.globalParams, 'particleSize', 0.4, 3.0, 0.05).name('Particle Size').onChange(saveState);
+globalFolder.add(state.globalParams, 'particleAlpha', 0.05, 1.0, 0.01).name('Particle Alpha').onChange(saveState);
+globalFolder.add(state.globalParams, 'trailDecay', 0.01, 0.20, 0.005).name('Trail Decay').onChange(saveState);
+globalFolder.add(state.globalParams, 'hue', 0, 360, 1).name('Hue').onChange(saveState);
+globalFolder.add(state.globalParams, 'saturation', 0, 100, 1).name('Saturation').onChange(saveState);
+globalFolder.add(state.globalParams, 'vignetteStrength', 0, 0.5, 0.01).name('Vignette').onChange(() => { updateVignette(); saveState(); });
+
+const actionFolder = gui.addFolder('Actions');
+actionFolder.add(guiActions, 'reseed').name('Reseed (R)');
+actionFolder.add(guiActions, 'pause').name('Pause (Space)');
+actionFolder.add(guiActions, 'screenshot').name('Screenshot (S)');
+actionFolder.add(guiActions, 'reset').name('Reset Defaults');
+actionFolder.add(guiActions, 'minimize').name('Minimize to Pill');
+
+function systemTitle(key) {
+  return ({
+    curl: 'Curl Noise',
+    clifford: 'Clifford',
+    physarum: 'Physarum',
+    dla: 'DLA (Dendrite)',
+    rd: 'Reaction-Diffusion',
+    boids: 'Flocking'
+  })[key];
+}
+
+function buildSystemFolder() {
+  if (systemFolder) { systemFolder.destroy(); systemFolder = null; }
+  systemFolder = gui.addFolder(systemTitle(state.currentSystem));
+  const sp = state.systemParams[state.currentSystem];
+  if (state.currentSystem === 'curl') {
+    systemFolder.add(sp, 'particleCount', 100, 12000, 100).name('Particles').onChange(() => { systems.curl.init(state); saveState(); });
+    systemFolder.add(sp, 'scale', 0.0005, 0.01, 0.0001).name('Field Scale').onChange(saveState);
+    systemFolder.add(sp, 'timeSpeed', 0, 0.001, 0.00001).name('Time Speed').onChange(saveState);
+    systemFolder.add(sp, 'octaves', 1, 4, 1).name('Octaves').onChange(saveState);
+    systemFolder.add(sp, 'particleSpeed', 0.1, 3.0, 0.05).name('Particle Speed').onChange(saveState);
+  } else if (state.currentSystem === 'clifford') {
+    systemFolder.add(sp, 'particleCount', 500, 30000, 500).name('Particles').onChange(() => { systems.clifford.init(state); saveState(); });
+    systemFolder.add(sp, 'a', -3, 3, 0.01).onChange(saveState);
+    systemFolder.add(sp, 'b', -3, 3, 0.01).onChange(saveState);
+    systemFolder.add(sp, 'c', -3, 3, 0.01).onChange(saveState);
+    systemFolder.add(sp, 'd', -3, 3, 0.01).onChange(saveState);
+    systemFolder.add(sp, 'iterationsPerFrame', 1, 5, 1).name('Iter / Frame').onChange(saveState);
+    systemFolder.add(sp, 'lifespan', 100, 1000, 10).name('Lifespan').onChange(saveState);
+  } else if (state.currentSystem === 'physarum') {
+    systemFolder.add(sp, 'agentCount', 1000, 60000, 1000).name('Agents').onChange(() => { systems.physarum.init(state); saveState(); });
+    systemFolder.add(sp, 'sensorDistance', 3, 30, 0.5).name('Sensor Distance').onChange(saveState);
+    systemFolder.add(sp, 'sensorAngle', 0.1, 1.5, 0.01).name('Sensor Angle').onChange(saveState);
+    systemFolder.add(sp, 'turnAngle', 0.1, 1.5, 0.01).name('Turn Angle').onChange(saveState);
+    systemFolder.add(sp, 'moveSpeed', 0.5, 3.0, 0.05).name('Move Speed').onChange(saveState);
+    systemFolder.add(sp, 'depositAmount', 1, 20, 0.5).name('Deposit Amount').onChange(saveState);
+    systemFolder.add(sp, 'decayFactor', 0.85, 0.99, 0.005).name('Decay Factor').onChange(saveState);
+  } else if (state.currentSystem === 'dla') {
+    systemFolder.add(sp, 'walkerCount', 200, 6000, 100).name('Walkers').onChange(() => { systems.dla.init(state); saveState(); });
+    systemFolder.add(sp, 'stepSize', 0.5, 3.5, 0.05).name('Step Size').onChange(saveState);
+    systemFolder.add(sp, 'spawnRadius', 0.2, 1.0, 0.02).name('Spawn Radius').onChange(saveState);
+  } else if (state.currentSystem === 'rd') {
+    systemFolder.add(sp, 'F', 0.01, 0.08, 0.0005).name('Feed (F)').onChange(saveState);
+    systemFolder.add(sp, 'k', 0.04, 0.075, 0.0005).name('Kill (k)').onChange(saveState);
+    systemFolder.add(sp, 'Du', 0.08, 0.25, 0.005).name('Du').onChange(saveState);
+    systemFolder.add(sp, 'Dv', 0.02, 0.12, 0.005).name('Dv').onChange(saveState);
+    systemFolder.add(sp, 'iterations', 1, 8, 1).name('Iterations').onChange(saveState);
+  } else if (state.currentSystem === 'boids') {
+    systemFolder.add(sp, 'particleCount', 200, 4000, 100).name('Boids').onChange(() => { systems.boids.init(state); saveState(); });
+    systemFolder.add(sp, 'neighborRadius', 12, 80, 1).name('Neighbor Radius').onChange(saveState);
+    systemFolder.add(sp, 'cohesion', 0, 0.02, 0.0005).name('Cohesion').onChange(saveState);
+    systemFolder.add(sp, 'alignment', 0, 0.15, 0.005).name('Alignment').onChange(saveState);
+    systemFolder.add(sp, 'separation', 0, 0.08, 0.001).name('Separation').onChange(saveState);
+    systemFolder.add(sp, 'maxSpeed', 0.8, 6.0, 0.1).name('Max Speed').onChange(saveState);
+  }
+}
+
+function buildHandFolder() {
+  if (handFolder) { handFolder.destroy(); handFolder = null; }
+  handFolder = gui.addFolder('Hand Control');
+  handFolder
+    .add({ enable() { toggleHandTracking(!hand.enabled); } }, 'enable')
+    .name(hand.enabled ? 'Disable Camera' : 'Enable Camera (C)');
+  handFolder.add(hand, 'showGrid').name('Show Quadrant Grid (G)');
+  handFolder.add(hand, 'smoothing', 0, 0.95, 0.01).name('Smoothing');
+}
+
+function toggleHandTracking(on) {
+  if (on) {
+    hand.enabled = true;
+    if (!hand.loaded) initHandTracking();
+    else handPreviewEl.style.display = 'block';
+  } else {
+    disableHandTracking();
+  }
+  buildHandFolder();
+  saveState();
+}
+
+// ============================================================
+// Actions.
+// ============================================================
+function switchSystem(key) {
+  state.currentSystem = key;
+  paintBackground();
+  systems[key].init(state);
+  buildSystemFolder();
+  // Reset hand arming since the parameter set changed.
+  for (const h of hand.hands) { h.lastIdx = -1; h.armed = false; }
+  saveState();
+}
+
+function reseed() {
+  paintBackground();
+  systems[state.currentSystem].init(state);
+}
+
+function onPaletteChange() {
+  paintBackground();
+  // Reset grid systems so their rendered output uses the new
+  // palette colors immediately rather than keeping the old.
+  if (state.currentSystem === 'physarum') systems.physarum.init(state);
+  else if (state.currentSystem === 'rd') systems.rd.init(state);
+  else if (state.currentSystem === 'dla') systems.dla.init(state);
+}
+
+function takeScreenshot() {
+  // Compose particle canvas + overlay + vignette into the saved
+  // image so the export matches what is on screen.
+  const off = document.createElement('canvas');
+  off.width = state.w; off.height = state.h;
+  const offCtx = off.getContext('2d');
+  offCtx.drawImage(canvas, 0, 0);
+  offCtx.drawImage(overlayCanvas, 0, 0);
+  const v = state.globalParams.vignetteStrength;
+  if (v > 0) {
+    const grad = offCtx.createRadialGradient(
+      state.w * 0.5, state.h * 0.5, Math.min(state.w, state.h) * 0.25,
+      state.w * 0.5, state.h * 0.5, Math.max(state.w, state.h) * 0.6
+    );
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, `rgba(0,0,0,${v})`);
+    offCtx.fillStyle = grad;
+    offCtx.fillRect(0, 0, state.w, state.h);
+  }
+  const link = document.createElement('a');
+  link.download = `particle-demo-${Date.now()}.png`;
+  link.href = off.toDataURL('image/png');
+  link.click();
+}
+
+function refreshControllers() {
+  if (gui.controllersRecursive) gui.controllersRecursive().forEach((c) => c.updateDisplay());
+}
+
+function resetDefaults() {
+  Object.assign(state.globalParams, DEFAULTS.globalParams);
+  for (const k of Object.keys(DEFAULTS.systemParams)) Object.assign(state.systemParams[k], DEFAULTS.systemParams[k]);
+  updateVignette();
+  systemController.setValue(DEFAULTS.currentSystem);
+  refreshControllers();
+  saveState();
+}
+
+// ============================================================
+// LocalStorage persistence.
+// ============================================================
+const STORAGE_KEY = 'particleDemoState';
+
+function saveState() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      currentSystem: state.currentSystem,
+      globalParams: state.globalParams,
+      systemParams: state.systemParams,
+      hand: { smoothing: hand.smoothing, showGrid: hand.showGrid }
+    }));
+  } catch (e) {}
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (data.currentSystem && systems[data.currentSystem]) state.currentSystem = data.currentSystem;
+    if (data.globalParams) {
+      // Migrate the old inkMode boolean to the new palette field.
+      if (typeof data.globalParams.inkMode === 'boolean' && !data.globalParams.palette) {
+        data.globalParams.palette = data.globalParams.inkMode ? 'ink' : 'light';
+      }
+      delete data.globalParams.inkMode;
+      Object.assign(state.globalParams, data.globalParams);
+    }
+    if (data.systemParams) {
+      for (const k of Object.keys(data.systemParams)) {
+        if (state.systemParams[k]) Object.assign(state.systemParams[k], data.systemParams[k]);
+      }
+    }
+    if (data.hand) {
+      if (typeof data.hand.smoothing === 'number') hand.smoothing = data.hand.smoothing;
+      if (typeof data.hand.showGrid === 'boolean') hand.showGrid = data.hand.showGrid;
+    }
+  } catch (e) {}
+}
+
+// ============================================================
+// Pill mode + hotkeys.
+// ============================================================
+let inPillMode = false, fullyHidden = false;
+function minimizeToPill() { gui.hide(); pillEl.style.display = 'flex'; inPillMode = true; fullyHidden = false; }
+function expandFromPill() { pillEl.style.display = 'none'; gui.show(); inPillMode = false; fullyHidden = false; }
+pillEl.addEventListener('click', expandFromPill);
+
+function toggleHidden() {
+  if (fullyHidden) {
+    if (inPillMode) pillEl.style.display = 'flex'; else gui.show();
+    fullyHidden = false;
+  } else {
+    if (inPillMode) pillEl.style.display = 'none'; else gui.hide();
+    fullyHidden = true;
+  }
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
+  switch (e.key) {
+    case 'h': case 'H': toggleHidden(); e.preventDefault(); break;
+    case ' ': state.paused = !state.paused; e.preventDefault(); break;
+    case 's': case 'S': takeScreenshot(); e.preventDefault(); break;
+    case 'r': case 'R': reseed(); e.preventDefault(); break;
+    case '1': systemController.setValue('curl'); e.preventDefault(); break;
+    case '2': systemController.setValue('clifford'); e.preventDefault(); break;
+    case '3': systemController.setValue('physarum'); e.preventDefault(); break;
+    case '4': systemController.setValue('dla'); e.preventDefault(); break;
+    case '5': systemController.setValue('rd'); e.preventDefault(); break;
+    case '6': systemController.setValue('boids'); e.preventDefault(); break;
+    case 'ArrowUp':
+    case 'ArrowDown': {
+      const order = ['curl', 'clifford', 'physarum', 'dla', 'rd', 'boids'];
+      const cur = order.indexOf(state.currentSystem);
+      const dir = e.key === 'ArrowUp' ? -1 : 1;
+      const next = (cur + dir + order.length) % order.length;
+      systemController.setValue(order[next]);
+      e.preventDefault();
+      break;
+    }
+    case 'c': case 'C': toggleHandTracking(!hand.enabled); e.preventDefault(); break;
+    case 'g': case 'G': hand.showGrid = !hand.showGrid; refreshControllers(); saveState(); e.preventDefault(); break;
+    case 'f': case 'F':
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+      e.preventDefault();
+      break;
+  }
+});
+
+// ============================================================
+// Webcam preview: drag the top-right handle to resize. Below
+// 80px wide the preview collapses to a small circular camera
+// icon; click the icon to restore the saved size.
+// ============================================================
+const handResizeHandle = document.getElementById('hand-resize');
+const COMPACT_THRESHOLD = 80;
+const DEFAULT_PREVIEW = { w: 240, h: 180 };
+let lastExpandedSize = { ...DEFAULT_PREVIEW };
+let resizing = false;
+let resizeStart = null;
+let didDrag = false;
+
+function setPreviewSize(w, h) {
+  handPreviewEl.style.width = `${w}px`;
+  handPreviewEl.style.height = `${h}px`;
+  const compact = w < COMPACT_THRESHOLD;
+  handPreviewEl.dataset.compact = compact ? '1' : '0';
+  if (!compact) lastExpandedSize = { w, h };
+  try {
+    localStorage.setItem('particleDemoPreview', JSON.stringify({
+      w: lastExpandedSize.w, h: lastExpandedSize.h, compact
+    }));
+  } catch (e) {}
+}
+
+handResizeHandle.addEventListener('mousedown', (e) => {
+  resizing = true;
+  didDrag = false;
+  resizeStart = {
+    x: e.clientX,
+    y: e.clientY,
+    w: handPreviewEl.offsetWidth,
+    h: handPreviewEl.offsetHeight
+  };
+  e.preventDefault();
+  e.stopPropagation();
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!resizing) return;
+  didDrag = true;
+  const dx = e.clientX - resizeStart.x;
+  const dy = e.clientY - resizeStart.y;
+  // Handle is top-right of an element anchored at bottom-left,
+  // so dragging right grows width and dragging up grows height.
+  const newW = Math.max(36, resizeStart.w + dx);
+  const newH = Math.max(36, resizeStart.h - dy);
+  setPreviewSize(newW, newH);
+});
+
+window.addEventListener('mouseup', () => { resizing = false; });
+
+handPreviewEl.addEventListener('click', () => {
+  if (didDrag) { didDrag = false; return; }
+  if (handPreviewEl.dataset.compact === '1') {
+    setPreviewSize(lastExpandedSize.w, lastExpandedSize.h);
+  }
+});
+
+(function restorePreviewSize() {
+  try {
+    const raw = localStorage.getItem('particleDemoPreview');
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    if (typeof d.w === 'number' && typeof d.h === 'number') {
+      lastExpandedSize = { w: d.w, h: d.h };
+      if (d.compact) setPreviewSize(36, 36);
+      else setPreviewSize(d.w, d.h);
+    }
+  } catch (e) {}
+})();
+
+// ============================================================
+// Boot.
+// ============================================================
+loadState();
+resize();
+guiActions.system = state.currentSystem;
+systemController.updateDisplay();
+buildSystemFolder();
+buildHandFolder();
+systems[state.currentSystem].init(state);
+refreshControllers();
+updateVignette();
+paintBackground();
+tick();
+</script>
+</body>
+</html>
