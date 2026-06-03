@@ -133,6 +133,61 @@
     --width: 300px;
     z-index: 50;
   }
+  /* Hotkey legend, anchored bottom-right to read as part of the
+     settings panel. Visibility tracks the panel (see syncLegend). */
+  #legend {
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    z-index: 40;
+    background: rgba(20, 20, 20, 0.92);
+    color: #fff;
+    border-radius: 8px;
+    padding: 11px 13px 12px;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+    pointer-events: none;
+    user-select: none;
+  }
+  #legend-title {
+    font-size: 10px;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 9px;
+  }
+  #legend-grid {
+    display: grid;
+    grid-template-columns: auto auto;
+    column-gap: 20px;
+    row-gap: 8px;
+  }
+  .legend-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .legend-row .kc {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 26px;
+    height: 24px;
+    padding: 0 7px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.10);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-bottom-width: 2px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1;
+    color: #fff;
+  }
+  .legend-row .lbl {
+    font-size: 11.5px;
+    color: rgba(255, 255, 255, 0.82);
+    white-space: nowrap;
+  }
 </style>
 </head>
 <body>
@@ -142,6 +197,21 @@
 <div id="vignette"></div>
 <div id="hand-preview"><canvas></canvas><div id="hand-status">idle</div><div id="hand-resize" title="Drag to resize"></div></div>
 <div id="pill" title="Show menu">&#9881;</div>
+<div id="legend">
+  <div id="legend-title">Hotkeys</div>
+  <div id="legend-grid">
+    <div class="legend-row"><span class="kc">1&ndash;6</span><span class="lbl">Switch system</span></div>
+    <div class="legend-row"><span class="kc">&uarr;&darr;</span><span class="lbl">Cycle systems</span></div>
+    <div class="legend-row"><span class="kc">C</span><span class="lbl">Camera on/off</span></div>
+    <div class="legend-row"><span class="kc">G</span><span class="lbl">Quadrant grid</span></div>
+    <div class="legend-row"><span class="kc">Space</span><span class="lbl">Pause</span></div>
+    <div class="legend-row"><span class="kc">R</span><span class="lbl">Reseed</span></div>
+    <div class="legend-row"><span class="kc">S</span><span class="lbl">Screenshot</span></div>
+    <div class="legend-row"><span class="kc">F</span><span class="lbl">Fullscreen</span></div>
+    <div class="legend-row"><span class="kc">H</span><span class="lbl">Hide menu</span></div>
+    <div class="legend-row"><span class="kc">Esc</span><span class="lbl">Hide menu</span></div>
+  </div>
+</div>
 <script type="module">
 import GUI from 'https://cdn.jsdelivr.net/npm/lil-gui@0.19/dist/lil-gui.esm.js';
 
@@ -219,6 +289,7 @@ const overlayCanvas = document.getElementById('overlay');
 const overlayCtx = overlayCanvas.getContext('2d');
 const vignetteEl = document.getElementById('vignette');
 const pillEl = document.getElementById('pill');
+const legendEl = document.getElementById('legend');
 const handPreviewEl = document.getElementById('hand-preview');
 const handPreviewCanvas = handPreviewEl.querySelector('canvas');
 const handPreviewCtx = handPreviewCanvas.getContext('2d');
@@ -1830,24 +1901,32 @@ function loadState() {
 // Pill mode + hotkeys.
 // ============================================================
 let inPillMode = false, fullyHidden = false;
-function minimizeToPill() { gui.hide(); pillEl.style.display = 'flex'; inPillMode = true; fullyHidden = false; }
-function expandFromPill() { pillEl.style.display = 'none'; gui.show(); inPillMode = false; fullyHidden = false; }
+// The hotkey legend reads as part of the settings panel, so it
+// is only visible in the normal expanded state, not when the
+// panel is minimized to the pill or fully hidden.
+function syncLegend() { legendEl.style.display = (!inPillMode && !fullyHidden) ? 'block' : 'none'; }
+function minimizeToPill() { gui.hide(); pillEl.style.display = 'flex'; inPillMode = true; fullyHidden = false; syncLegend(); }
+function expandFromPill() { pillEl.style.display = 'none'; gui.show(); inPillMode = false; fullyHidden = false; syncLegend(); }
 pillEl.addEventListener('click', expandFromPill);
 
-function toggleHidden() {
-  if (fullyHidden) {
-    if (inPillMode) pillEl.style.display = 'flex'; else gui.show();
-    fullyHidden = false;
-  } else {
-    if (inPillMode) pillEl.style.display = 'none'; else gui.hide();
-    fullyHidden = true;
+function setHidden(hidden) {
+  if (hidden !== fullyHidden) {
+    if (hidden) {
+      if (inPillMode) pillEl.style.display = 'none'; else gui.hide();
+    } else {
+      if (inPillMode) pillEl.style.display = 'flex'; else gui.show();
+    }
+    fullyHidden = hidden;
   }
+  syncLegend();
 }
+function toggleHidden() { setHidden(!fullyHidden); }
 
 window.addEventListener('keydown', (e) => {
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
   switch (e.key) {
     case 'h': case 'H': toggleHidden(); e.preventDefault(); break;
+    case 'Escape': setHidden(true); e.preventDefault(); break;
     case ' ': state.paused = !state.paused; e.preventDefault(); break;
     case 's': case 'S': takeScreenshot(); e.preventDefault(); break;
     case 'r': case 'R': reseed(); e.preventDefault(); break;
@@ -1963,6 +2042,7 @@ systems[state.currentSystem].init(state);
 refreshControllers();
 updateVignette();
 paintBackground();
+syncLegend();
 tick();
 </script>
 </body>
