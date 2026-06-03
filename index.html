@@ -147,6 +147,14 @@
     box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
     pointer-events: none;
     user-select: none;
+    opacity: 1;
+    /* Quick fade-in when the cursor wakes it. */
+    transition: opacity 0.45s ease;
+  }
+  /* Idle state: a slow fade-out after the mouse goes still. */
+  #legend.legend-idle {
+    opacity: 0;
+    transition: opacity 1.2s ease;
   }
   #legend-title {
     font-size: 10px;
@@ -1932,6 +1940,7 @@ function applyVisibility() {
   pillEl.style.display = showPill ? 'flex' : 'none';
   // Legend reads as part of the panel, so it tracks the panel.
   legendEl.style.display = showGui ? 'block' : 'none';
+  if (showGui) wakeLegend(); else stopLegendIdle();
   // Webcam preview follows the camera state, but Esc hides it.
   handPreviewEl.style.display = (!allHidden && hand.enabled) ? 'block' : 'none';
   // Overlay (hand cursors, quadrant grid) hides only on Esc.
@@ -1945,6 +1954,26 @@ pillEl.addEventListener('click', expandFromPill);
 function toggleHidden() { menuHidden = !menuHidden; applyVisibility(); }
 // Esc hides everything; pressing it again brings it all back.
 function toggleEverything() { allHidden = !allHidden; if (!allHidden) menuHidden = false; applyVisibility(); }
+
+// The hotkey legend fades out after a spell of mouse inactivity
+// and fades back in the instant the cursor moves, so it stays
+// out of the way during a performance but is one wiggle away.
+const LEGEND_IDLE_MS = 10000;
+let legendIdleTimer = null;
+function stopLegendIdle() {
+  if (legendIdleTimer) { clearTimeout(legendIdleTimer); legendIdleTimer = null; }
+  legendEl.classList.remove('legend-idle');
+}
+function wakeLegend() {
+  legendEl.classList.remove('legend-idle');
+  if (legendIdleTimer) clearTimeout(legendIdleTimer);
+  // Only count down while the legend is actually on screen.
+  if (legendEl.style.display !== 'none') {
+    legendIdleTimer = setTimeout(() => legendEl.classList.add('legend-idle'), LEGEND_IDLE_MS);
+  }
+}
+['mousemove', 'pointerdown', 'wheel', 'keydown', 'touchstart'].forEach((ev) =>
+  window.addEventListener(ev, wakeLegend, { passive: true }));
 
 window.addEventListener('keydown', (e) => {
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
