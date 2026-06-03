@@ -134,11 +134,11 @@
     z-index: 50;
   }
   /* Hotkey legend, anchored bottom-right to read as part of the
-     settings panel. Visibility tracks the panel (see syncLegend). */
+     settings panel. Visibility tracks the panel (see applyVisibility). */
   #legend {
     position: fixed;
-    right: 12px;
-    bottom: 12px;
+    left: 12px;
+    top: 12px;
     z-index: 40;
     background: rgba(20, 20, 20, 0.92);
     color: #fff;
@@ -209,7 +209,7 @@
     <div class="legend-row"><span class="kc">S</span><span class="lbl">Screenshot</span></div>
     <div class="legend-row"><span class="kc">F</span><span class="lbl">Fullscreen</span></div>
     <div class="legend-row"><span class="kc">H</span><span class="lbl">Hide menu</span></div>
-    <div class="legend-row"><span class="kc">Esc</span><span class="lbl">Hide menu</span></div>
+    <div class="legend-row"><span class="kc">Esc</span><span class="lbl">Hide all</span></div>
   </div>
 </div>
 <script type="module">
@@ -347,7 +347,11 @@ const state = {
     // Positive feedbackScale = zoom in tunnel. Negative =
     // zoom out. Rotate spins the trails.
     feedbackScale: 0,
-    feedbackRotate: 0
+    feedbackRotate: 0,
+    // Hand pinch response curve. 1 = linear; higher = more
+    // sensitive (values rise with a smaller pinch), lower =
+    // finer control. Applied to every quadrant's pinch input.
+    sensitivity: 1.0
   },
   systemParams: {
     curl:     { particleCount: 4000, scale: 0.002, timeSpeed: 0.0002, octaves: 2, particleSpeed: 1.0 },
@@ -971,7 +975,14 @@ function getControlParams() {
     { name: 'Trail Decay', obj: gp, key: 'trailDecay',       min: 0.01,  max: 0.20 },
     { name: 'Size',        obj: gp, key: 'particleSize',     min: 0.4,   max: 3.0 },
     { name: 'Alpha',       obj: gp, key: 'particleAlpha',    min: 0.05,  max: 1.0 },
-    { name: 'Vignette',    obj: gp, key: 'vignetteStrength', min: 0,     max: 0.5, after: updateVignette }
+    { name: 'Vignette',    obj: gp, key: 'vignetteStrength', min: 0,     max: 0.5, after: updateVignette },
+    // Color: Hue only shows once Saturation is above 0, so the
+    // two read as one color box across two cells.
+    { name: 'Hue',         obj: gp, key: 'hue',              min: 0,     max: 360, fmt: 'int' },
+    { name: 'Saturation',  obj: gp, key: 'saturation',      min: 0,     max: 100, fmt: 'int' },
+    // Meta control: reshapes the pinch response for every other
+    // cell, so one box tunes how sensitive the whole rig feels.
+    { name: 'Sensitivity', obj: gp, key: 'sensitivity',     min: 0.4,   max: 2.5 }
   ];
   if (state.currentSystem === 'curl') {
     const sp = state.systemParams.curl;
@@ -1197,7 +1208,12 @@ function updateHand() {
         const dy = lm[4].y - lm[8].y;
         const dist = Math.hypot(dx, dy);
         // Closed pinch ~0.02, spread ~0.30. Closed = 0 = min, spread = 1 = max.
-        h.rawPinch = Math.max(0, Math.min(1, (dist - 0.02) / 0.28));
+        const rp = Math.max(0, Math.min(1, (dist - 0.02) / 0.28));
+        // Sensitivity reshapes the response: >1 makes values rise
+        // with a smaller pinch, <1 gives finer control. Fully
+        // open/closed still map to max/min, so it never traps.
+        const sens = state.globalParams.sensitivity || 1;
+        h.rawPinch = sens === 1 ? rp : Math.pow(rp, 1 / sens);
       }
       drawHandPreview(ordered);
     } else {
@@ -1703,6 +1719,7 @@ globalFolder.add(state.globalParams, 'trailDecay', 0.01, 0.20, 0.005).name('Trai
 globalFolder.add(state.globalParams, 'hue', 0, 360, 1).name('Hue').onChange(saveState);
 globalFolder.add(state.globalParams, 'saturation', 0, 100, 1).name('Saturation').onChange(saveState);
 globalFolder.add(state.globalParams, 'vignetteStrength', 0, 0.5, 0.01).name('Vignette').onChange(() => { updateVignette(); saveState(); });
+globalFolder.add(state.globalParams, 'sensitivity', 0.4, 2.5, 0.05).name('Hand Sensitivity').onChange(saveState);
 
 const actionFolder = gui.addFolder('Actions');
 actionFolder.add(guiActions, 'reseed').name('Reseed (R)');
@@ -1787,6 +1804,7 @@ function toggleHandTracking(on) {
     disableHandTracking();
   }
   buildHandFolder();
+  applyVisibility();
   saveState();
 }
 
@@ -1900,33 +1918,39 @@ function loadState() {
 // ============================================================
 // Pill mode + hotkeys.
 // ============================================================
-let inPillMode = false, fullyHidden = false;
-// The hotkey legend reads as part of the settings panel, so it
-// is only visible in the normal expanded state, not when the
-// panel is minimized to the pill or fully hidden.
-function syncLegend() { legendEl.style.display = (!inPillMode && !fullyHidden) ? 'block' : 'none'; }
-function minimizeToPill() { gui.hide(); pillEl.style.display = 'flex'; inPillMode = true; fullyHidden = false; syncLegend(); }
-function expandFromPill() { pillEl.style.display = 'none'; gui.show(); inPillMode = false; fullyHidden = false; syncLegend(); }
+// UI chrome visibility is derived from three flags:
+//   inPillMode - panel minimized to the corner pill
+//   menuHidden - menu hidden via H (panel/pill + legend)
+//   allHidden  - everything hidden via Esc, incl. the webcam
+//                preview and hand overlay, for a clean canvas
+let inPillMode = false, menuHidden = false, allHidden = false;
+
+function applyVisibility() {
+  const showGui = !allHidden && !menuHidden && !inPillMode;
+  const showPill = !allHidden && !menuHidden && inPillMode;
+  if (showGui) gui.show(); else gui.hide();
+  pillEl.style.display = showPill ? 'flex' : 'none';
+  // Legend reads as part of the panel, so it tracks the panel.
+  legendEl.style.display = showGui ? 'block' : 'none';
+  // Webcam preview follows the camera state, but Esc hides it.
+  handPreviewEl.style.display = (!allHidden && hand.enabled) ? 'block' : 'none';
+  // Overlay (hand cursors, quadrant grid) hides only on Esc.
+  overlayCanvas.style.display = allHidden ? 'none' : 'block';
+}
+
+function minimizeToPill() { inPillMode = true; menuHidden = false; allHidden = false; applyVisibility(); }
+function expandFromPill() { inPillMode = false; menuHidden = false; allHidden = false; applyVisibility(); }
 pillEl.addEventListener('click', expandFromPill);
 
-function setHidden(hidden) {
-  if (hidden !== fullyHidden) {
-    if (hidden) {
-      if (inPillMode) pillEl.style.display = 'none'; else gui.hide();
-    } else {
-      if (inPillMode) pillEl.style.display = 'flex'; else gui.show();
-    }
-    fullyHidden = hidden;
-  }
-  syncLegend();
-}
-function toggleHidden() { setHidden(!fullyHidden); }
+function toggleHidden() { menuHidden = !menuHidden; applyVisibility(); }
+// Esc hides everything; pressing it again brings it all back.
+function toggleEverything() { allHidden = !allHidden; if (!allHidden) menuHidden = false; applyVisibility(); }
 
 window.addEventListener('keydown', (e) => {
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
   switch (e.key) {
     case 'h': case 'H': toggleHidden(); e.preventDefault(); break;
-    case 'Escape': setHidden(true); e.preventDefault(); break;
+    case 'Escape': toggleEverything(); e.preventDefault(); break;
     case ' ': state.paused = !state.paused; e.preventDefault(); break;
     case 's': case 'S': takeScreenshot(); e.preventDefault(); break;
     case 'r': case 'R': reseed(); e.preventDefault(); break;
@@ -2000,11 +2024,17 @@ window.addEventListener('mousemove', (e) => {
   didDrag = true;
   const dx = e.clientX - resizeStart.x;
   const dy = e.clientY - resizeStart.y;
-  // Handle is top-right of an element anchored at bottom-left,
-  // so dragging right grows width and dragging up grows height.
-  const newW = Math.max(36, resizeStart.w + dx);
-  const newH = Math.max(36, resizeStart.h - dy);
-  setPreviewSize(newW, newH);
+  // Constrain to the camera's aspect ratio so the preview never
+  // stretches. Handle is top-right on an element anchored at
+  // bottom-left, so dragging right or up both enlarge it; we
+  // average the two so a diagonal drag feels natural.
+  const aspect = (hand.video && hand.video.videoWidth)
+    ? hand.video.videoWidth / hand.video.videoHeight
+    : DEFAULT_PREVIEW.w / DEFAULT_PREVIEW.h;
+  const wByX = resizeStart.w + dx;
+  const wByY = (resizeStart.h - dy) * aspect;
+  const newW = Math.max(36, (wByX + wByY) * 0.5);
+  setPreviewSize(newW, newW / aspect);
 });
 
 window.addEventListener('mouseup', () => { resizing = false; });
@@ -2042,7 +2072,7 @@ systems[state.currentSystem].init(state);
 refreshControllers();
 updateVignette();
 paintBackground();
-syncLegend();
+applyVisibility();
 tick();
 </script>
 </body>
