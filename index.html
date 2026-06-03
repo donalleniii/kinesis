@@ -196,6 +196,135 @@
     color: rgba(255, 255, 255, 0.82);
     white-space: nowrap;
   }
+  /* Hover tooltip for the control panel (shown after a delay). */
+  #tip {
+    position: fixed;
+    z-index: 1500;
+    max-width: 230px;
+    padding: 8px 11px;
+    border-radius: 8px;
+    background: rgba(18, 18, 20, 0.97);
+    color: rgba(255, 255, 255, 0.9);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 12px;
+    line-height: 1.45;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+    opacity: 0;
+    transform: translateX(6px);
+    transition: opacity 0.16s ease, transform 0.16s ease;
+  }
+  #tip.show { opacity: 1; transform: translateX(0); }
+
+  /* Splash / intro overlay. The particle field animates behind it. */
+  #splash {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: radial-gradient(ellipse at center, rgba(8, 8, 10, 0.34) 0%, rgba(8, 8, 10, 0.64) 100%);
+    opacity: 0;
+    animation: splashIn 0.7s ease forwards;
+  }
+  #splash.closing { animation: splashOut 0.5s ease forwards; pointer-events: none; }
+  @keyframes splashIn { to { opacity: 1; } }
+  @keyframes splashOut { to { opacity: 0; } }
+  #splash-card {
+    position: relative;
+    width: 100%;
+    max-width: 540px;
+    padding: 42px 42px 30px;
+    text-align: center;
+    color: #fff;
+    border-radius: 20px;
+    background: rgba(22, 22, 26, 0.42);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(14px) saturate(1.15);
+    -webkit-backdrop-filter: blur(14px) saturate(1.15);
+    transform: translateY(10px);
+    animation: cardIn 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) 0.05s forwards;
+  }
+  @keyframes cardIn { to { transform: translateY(0); } }
+  .splash-kicker {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 3.5px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.45);
+    margin-bottom: 14px;
+  }
+  .splash-title {
+    margin: 0 0 16px;
+    font-size: clamp(40px, 8vw, 60px);
+    font-weight: 200;
+    letter-spacing: -0.5px;
+    line-height: 1;
+  }
+  .splash-lede {
+    margin: 0 auto 26px;
+    max-width: 410px;
+    font-size: 15px;
+    font-weight: 400;
+    line-height: 1.6;
+    color: rgba(255, 255, 255, 0.78);
+  }
+  .splash-btn {
+    appearance: none;
+    border: 0;
+    cursor: pointer;
+    padding: 13px 26px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.96);
+    color: #16161a;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+    transition: transform 0.16s ease, box-shadow 0.16s ease;
+  }
+  .splash-btn:hover { transform: translateY(-1px) scale(1.02); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45); }
+  .splash-btn:active { transform: translateY(0) scale(0.99); }
+  .splash-skip {
+    display: block;
+    margin: 14px auto 0;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.5);
+    transition: color 0.16s ease;
+  }
+  .splash-skip:hover { color: rgba(255, 255, 255, 0.8); }
+  .splash-hints {
+    margin-top: 30px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    font-size: 11.5px;
+    font-weight: 400;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.4);
+  }
+  .splash-hints b {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-weight: 600;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.62);
+    padding: 1px 5px;
+    margin: 0 1px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 4px;
+  }
 </style>
 </head>
 <body>
@@ -218,6 +347,20 @@
     <div class="legend-row"><span class="kc">F</span><span class="lbl">Fullscreen</span></div>
     <div class="legend-row"><span class="kc">H</span><span class="lbl">Hide menu</span></div>
     <div class="legend-row"><span class="kc">Esc</span><span class="lbl">Hide all</span></div>
+  </div>
+</div>
+<div id="splash">
+  <div id="splash-card">
+    <div class="splash-kicker">Interactive particle field</div>
+    <h1 class="splash-title">Kinesis</h1>
+    <p class="splash-lede">Six living particle systems you can shape with your hands. For the full experience, enable your camera and conduct the field with gestures.</p>
+    <button id="splash-enable" class="splash-btn">Enable camera</button>
+    <button id="splash-skip" class="splash-skip">Continue without camera</button>
+    <div class="splash-hints">
+      <span>Press <b>1</b>&ndash;<b>6</b> to switch between the six particle systems.</span>
+      <span>A hotkey guide sits in the corner &mdash; <b>H</b> hides it, <b>Esc</b> hides everything.</span>
+      <span>Open &ldquo;Advanced Controls for Nerds&rdquo; on the right to tune every detail, and drag the camera preview&rsquo;s corner to resize it.</span>
+    </div>
   </div>
 </div>
 <script type="module">
@@ -1695,7 +1838,7 @@ function updateVignette() {
 // ============================================================
 // GUI.
 // ============================================================
-const gui = new GUI({ title: 'Particle Demo' });
+const gui = new GUI({ title: 'Advanced Controls for Nerds' });
 let systemFolder = null, handFolder = null;
 
 const guiActions = {
@@ -2089,6 +2232,118 @@ handPreviewEl.addEventListener('click', () => {
 })();
 
 // ============================================================
+// Control-panel hover tooltips. A pop-up appears next to a row
+// after the cursor rests on it, explaining what it does. Wired
+// by delegation on the GUI root so it survives folder rebuilds.
+// ============================================================
+const SYSTEM_DESC = {
+  curl:     "Particles drift along a smooth, swirling flow field for silky, smoke-like motion.",
+  clifford: "A strange attractor that traces delicate, looping mathematical filigree.",
+  physarum: "Thousands of slime-mold agents grow branching, organic networks.",
+  dla:      "Wandering particles stick together into crystalline, frost-like branches.",
+  rd:       "Two competing chemicals react to grow spots, stripes, and maze-like patterns.",
+  boids:    "Bird-like boids flock together, leaving wind-swept ribbons of motion."
+};
+const DESCRIPTIONS = {
+  'Advanced Controls for Nerds': "The full control panel — every knob for every system lives here.",
+  'Curl Noise':         SYSTEM_DESC.curl,
+  'Clifford':           SYSTEM_DESC.clifford,
+  'Physarum':           SYSTEM_DESC.physarum,
+  'DLA (Dendrite)':     SYSTEM_DESC.dla,
+  'Reaction-Diffusion': SYSTEM_DESC.rd,
+  'Flocking':           SYSTEM_DESC.boids,
+  'Global':         "Look-and-feel settings shared across every system.",
+  'Palette':        "Switch the color scheme: ink, light, or a gritty night mode.",
+  'Particle Size':  "How large each particle is drawn.",
+  'Particle Alpha': "Particle opacity — lower gives softer, more layered trails.",
+  'Trail Decay':    "How fast trails fade — lower leaves longer-lasting streaks.",
+  'Hue':            "Shifts particle color around the wheel (raise Saturation to see it).",
+  'Saturation':     "How vivid the color is — zero keeps the palette's default tone.",
+  'Vignette':       "Darkens the screen edges to draw the eye toward the center.",
+  'Hand Sensitivity': "How reactive hand-pinch control is — higher reacts to smaller pinches.",
+  'Actions':        "One-tap commands for the canvas.",
+  'Reseed (R)':     "Restart the current system from a fresh random seed.",
+  'Pause (Space)':  "Freeze or resume the animation.",
+  'Screenshot (S)': "Save the current frame as a PNG.",
+  'Reset Defaults': "Return every setting to its original value.",
+  'Minimize to Pill': "Collapse this panel down to a small corner button.",
+  'Hand Control':   "Drive the controls with your hands through the webcam.",
+  'Enable Camera (C)': "Turn on webcam hand-tracking to shape the field with gestures.",
+  'Disable Camera': "Turn off the webcam and hand-tracking.",
+  'Show Quadrant Grid (G)': "Toggle the on-screen grid that maps hand position to controls.",
+  'Smoothing':      "How much hand motion is smoothed — higher is steadier but laggier."
+};
+
+const tipEl = document.createElement('div');
+tipEl.id = 'tip';
+document.body.appendChild(tipEl);
+const TIP_DELAY = 2500;
+let tipTimer = null, tipTarget = null;
+
+function descForRow(el) {
+  let label = null;
+  if (el.classList.contains('title')) label = el.textContent.trim();
+  else { const n = el.querySelector(':scope > .name'); if (n) label = n.textContent.trim(); }
+  if (!label) return null;
+  // The System row describes whichever system is active.
+  if (label === 'System') return SYSTEM_DESC[state.currentSystem] || null;
+  return DESCRIPTIONS[label] || null;
+}
+
+function showTipFor(el, text) {
+  tipEl.textContent = text;
+  const g = gui.domElement.getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  // Sit just left of the panel, vertically aligned with the row.
+  tipEl.style.left = 'auto';
+  tipEl.style.right = (window.innerWidth - g.left + 10) + 'px';
+  tipEl.style.top = Math.min(window.innerHeight - 70, Math.max(8, r.top)) + 'px';
+  tipEl.classList.add('show');
+}
+function hideTip() { tipEl.classList.remove('show'); }
+
+function initTooltips() {
+  const root = gui.domElement;
+  root.addEventListener('mouseover', (e) => {
+    const el = e.target.closest('.controller, .title');
+    const target = (el && root.contains(el)) ? el : null;
+    if (target === tipTarget) return;
+    tipTarget = target;
+    clearTimeout(tipTimer);
+    hideTip();
+    if (!target) return;
+    const text = descForRow(target);
+    if (!text) return;
+    tipTimer = setTimeout(() => showTipFor(target, text), TIP_DELAY);
+  });
+  root.addEventListener('mouseleave', () => {
+    tipTarget = null; clearTimeout(tipTimer); hideTip();
+  });
+}
+
+// ============================================================
+// Splash / intro overlay. Particles animate behind it; the
+// camera button enables hand tracking and dismisses the splash.
+// ============================================================
+function initSplash() {
+  const splash = document.getElementById('splash');
+  if (!splash) return;
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    splash.classList.add('closing');
+    wakeLegend();
+    setTimeout(() => splash.remove(), 500);
+  };
+  document.getElementById('splash-enable').addEventListener('click', () => {
+    toggleHandTracking(true);
+    close();
+  });
+  document.getElementById('splash-skip').addEventListener('click', close);
+}
+
+// ============================================================
 // Boot.
 // ============================================================
 loadState();
@@ -2102,6 +2357,8 @@ refreshControllers();
 updateVignette();
 paintBackground();
 applyVisibility();
+initTooltips();
+initSplash();
 tick();
 </script>
 </body>
