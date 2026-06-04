@@ -226,7 +226,9 @@
     align-items: center;
     justify-content: center;
     padding: 24px;
-    background: radial-gradient(ellipse at center, rgba(8, 8, 10, 0.34) 0%, rgba(8, 8, 10, 0.64) 100%);
+    /* Keep the overlay transparent so the bright yellow field
+       shows through on load; the frosted card carries the text. */
+    background: transparent;
     opacity: 0;
     animation: splashIn 0.7s ease forwards;
   }
