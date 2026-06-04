@@ -11,7 +11,7 @@
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background: #EAE0CB;
+    background: #FFDD00;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   }
   #canvas, #overlay {
@@ -448,7 +448,7 @@ const handStatusEl = document.getElementById('hand-status');
 const grainEl = document.getElementById('grain');
 
 const PALETTES = {
-  ink:   { bg: [234, 224, 203], particle: [10, 10, 10],    lightness: 0.30, grain: false },
+  ink:   { bg: [255, 221, 0],   particle: [0, 0, 0],       lightness: 0.30, grain: false },
   light: { bg: [236, 236, 236], particle: [255, 255, 255], lightness: 0.72, grain: false },
   night: { bg: [8, 8, 12],      particle: [230, 224, 210], lightness: 0.72, grain: true  }
 };
@@ -1863,7 +1863,7 @@ const systemController = gui
   .onChange((v) => switchSystem(v));
 
 const globalFolder = gui.addFolder('Global');
-globalFolder.add(state.globalParams, 'palette', { 'Ink (Black on Beige)': 'ink', 'Light (White on Gray)': 'light', 'Night (Gritty)': 'night' }).name('Palette').onChange(() => { onPaletteChange(); saveState(); });
+globalFolder.add(state.globalParams, 'palette', { 'Black on Yellow': 'ink', 'Light (White on Gray)': 'light', 'Night (Gritty)': 'night' }).name('Palette').onChange(() => { onPaletteChange(); saveState(); });
 globalFolder.add(state.globalParams, 'particleSize', 0.4, 3.0, 0.05).name('Particle Size').onChange(saveState);
 globalFolder.add(state.globalParams, 'particleAlpha', 0.05, 1.0, 0.01).name('Particle Alpha').onChange(saveState);
 globalFolder.add(state.globalParams, 'trailDecay', 0.01, 0.20, 0.005).name('Trail Decay').onChange(saveState);
@@ -2253,7 +2253,7 @@ const DESCRIPTIONS = {
   'Reaction-Diffusion': SYSTEM_DESC.rd,
   'Flocking':           SYSTEM_DESC.boids,
   'Global':         "Look-and-feel settings shared across every system.",
-  'Palette':        "Switch the color scheme: ink, light, or a gritty night mode.",
+  'Palette':        "Switch the color scheme: black-on-yellow, light, or a gritty night mode.",
   'Particle Size':  "How large each particle is drawn.",
   'Particle Alpha': "Particle opacity — lower gives softer, more layered trails.",
   'Trail Decay':    "How fast trails fade — lower leaves longer-lasting streaks.",
